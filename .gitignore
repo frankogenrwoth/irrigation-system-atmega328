@@ -1,0 +1,42 @@
+# IDE/editor
+.vscode/
+.idea/
+*.swp
+*~
+
+# Build artifacts
+build/
+bin/
+obj/
+*.o
+*.lo
+*.la
+*.a
+*.so
+*.so.*
+*.dll
+*.exe
+a.out
+
+# Debug / coverage
+*.gcda
+*.gcno
+*.gcov
+*.prof
+
+# Tags / indexes
+tags
+cscope.*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Core dumps
+core
+core.*
+
+# Temporary files
+*~
+
+deprecated.c
