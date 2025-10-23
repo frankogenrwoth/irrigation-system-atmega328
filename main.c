@@ -74,7 +74,9 @@
 #define DISPLAY_4_BIT_MODE 0x02
 
 // display user interface functions
-unsigned char buffer[16];
+char buffer[16];
+
+#define MSG_BUFFER_SIZE 4 // starting from 0
 
 char *MENU_BUFFER[] = {
     "Tank capacity",
@@ -83,20 +85,23 @@ char *MENU_BUFFER[] = {
     "Soil temperature",
     "Triggers",
     "Messages",
-    "Config"};
+    "Config"
+};
 
 char *TRIGGERS_BUFFER[] = {
     "MIN CAPACITY",
-    "MAX TEMP"};
+    "MAX TEMP"
+};
 
 char *CONFIG_BUFFER[] = {
     "Step size",
     "Pumping threshold",
     "Spraying threshold",
     "Enable triggers",
-    "Enable alerts"};
+    "Enable alerts"
+};
 
-char *MESSAGES_BUFFER[10] = {0};
+char *MESSAGES_BUFFER[MSG_BUFFER_SIZE] = {"No message", "No message", "No message", "No message"};
 
 int active_menu_index = -1;
 int active_trigger_index = -1;
@@ -113,6 +118,7 @@ int message_hover_index = 0;
 float MINIMUM_CAPACITY_BEFORE_REFILLING_TRIGGER = 1.0;
 float MAXIMUM_TEMPERATURE_BEFORE_PUMPING = 28.5;
 float STEP_SIZE_FOR_INCREMENTS = 0.5;
+float STEP_INCREMENT = 0.25;
 float PUMP_THRESHOLD = 20.0;
 float SPRAY_THRESHOLD = 24.0;
 char ENABLE_TRIGGER_VALUE = 1;
@@ -313,7 +319,7 @@ uint16_t HCSR04_get_distance(void)
 // keypad -1x4 matrix firmware functions
 void KEYPAD_init()
 {
-    KEYPAD_DDR &= ~(1 << KEYPAD_KEY_1) & ~(1 << KEYPAD_KEY_2) & ~(1 << KEYPAD_KEY_3) & ~(1 << KEYPAD_KEY_4);
+    KEYPAD_DDR &= ~((1 << KEYPAD_KEY_1) | (1 << KEYPAD_KEY_2) | (1 << KEYPAD_KEY_3) | (1 << KEYPAD_KEY_4));
     KEYPAD_PORT |= (1 << KEYPAD_KEY_1) | (1 << KEYPAD_KEY_2) | (1 << KEYPAD_KEY_3) | (1 << KEYPAD_KEY_4);
 }
 
@@ -505,6 +511,191 @@ void ui_show_display()
     }
 }
 
+
+// user process command
+void ui_process_key_command (uint8_t key) {
+    if (key == 1)
+    {
+        if (active_menu_index == -1)
+        {
+            return;
+        }
+        else
+        {
+            if (active_trigger_index != -1)
+            {
+                active_trigger_index = -1;
+            }
+            else if (active_config_index != -1)
+            {
+                active_config_index = -1;
+            }
+            else
+            {
+                active_menu_index = -1;
+            }
+        }
+    }
+    else if (key == 2)
+    {
+        if (active_menu_index == -1)
+        {
+            if (menu_hover_index < 6)
+                menu_hover_index++; // navigate downwards on the main menu
+        }
+        else if (active_menu_index == 4) 
+        {
+            // user is in the triggers menu
+            if (active_trigger_index == -1)
+            {
+                if (trigger_hover_index < (sizeof(TRIGGERS_BUFFER)/sizeof(TRIGGERS_BUFFER[0]) - 1))
+                    trigger_hover_index++; // navigate downwards on the triggers menu
+            } else {
+                switch (active_trigger_index) {
+                    case 0:
+                        // adjust MINIMUM_CAPACITY_BEFORE_REFILLING_TRIGGER - decrease
+                        MINIMUM_CAPACITY_BEFORE_REFILLING_TRIGGER -= STEP_SIZE_FOR_INCREMENTS;
+                        break;
+                    case 1:
+                        // adjust MAXIMUM_TEMPERATURE_BEFORE_PUMPING - decrease
+                        MAXIMUM_TEMPERATURE_BEFORE_PUMPING -= STEP_SIZE_FOR_INCREMENTS;
+                        break;
+                    default:
+                        break;
+                }
+            }
+        }
+        else if (active_menu_index == 5) {
+            if (message_hover_index < MSG_BUFFER_SIZE - 1)
+                message_hover_index++;
+        }
+        else if (active_menu_index == 6)
+        {
+            if (active_config_index == -1)
+            {
+                if (config_hover_index < (sizeof(CONFIG_BUFFER)/sizeof(CONFIG_BUFFER[0]) - 1))
+                    config_hover_index++; // navigate downwards on the config menu
+            } else {
+                switch (active_config_index)
+                {
+                case 0:
+                    // adjust STEP_SIZE_FOR_INCREMENTS - decrease
+                    STEP_SIZE_FOR_INCREMENTS -= STEP_INCREMENT;
+                    break;
+                case 1:
+                    // adjust PUMP_THRESHOLD - decrease
+                    PUMP_THRESHOLD -= STEP_SIZE_FOR_INCREMENTS;
+                    break;
+                case 2:
+                    // adjust SPRAY_THRESHOLD - decrease
+                    SPRAY_THRESHOLD -= STEP_SIZE_FOR_INCREMENTS;
+                    break;
+                case 3:
+                    // adjust ENABLE_TRIGGER_VALUE - toggle
+                    ENABLE_TRIGGER_VALUE = 0;
+                    break;
+                case 4:
+                    // adjust ENABLE_ALERT_VALUE - toggle
+                    ENABLE_ALERT_VALUE = 0;
+                    break;
+                default:
+                    break;
+                }
+            }
+        }
+    }
+    else if (key == 3)
+    {
+        if (active_menu_index == -1)
+        {
+            if (menu_hover_index > 0)
+                menu_hover_index--;
+        }
+        else if (active_menu_index == 4)
+        {
+            if (active_trigger_index == -1)
+            {
+                if (trigger_hover_index > 0)
+                    trigger_hover_index--;
+            } else {
+                switch (active_trigger_index) {
+                    case 0:
+                        // adjust MINIMUM_CAPACITY_BEFORE_REFILLING_TRIGGER - decrease
+                        MINIMUM_CAPACITY_BEFORE_REFILLING_TRIGGER += STEP_SIZE_FOR_INCREMENTS;
+                        break;
+                    case 1:
+                        // adjust MAXIMUM_TEMPERATURE_BEFORE_PUMPING - decrease
+                        MAXIMUM_TEMPERATURE_BEFORE_PUMPING += STEP_SIZE_FOR_INCREMENTS;
+                        break;
+                    default:
+                        break;
+                }
+            }
+        } 
+        else if (active_menu_index == 5) {
+            if (message_hover_index > 0)
+                message_hover_index--;
+        }
+        else if (active_menu_index == 6)
+        {
+            if (active_config_index == -1)
+            {
+                if (config_hover_index > 0)
+                    config_hover_index--;
+            } else {
+            switch (active_config_index)
+                {
+                case 0:
+                    // adjust STEP_SIZE_FOR_INCREMENTS - decrease
+                    STEP_SIZE_FOR_INCREMENTS += STEP_INCREMENT;
+                    break;
+                case 1:
+                    // adjust PUMP_THRESHOLD - decrease
+                    PUMP_THRESHOLD += STEP_SIZE_FOR_INCREMENTS;
+                    break;
+                case 2:
+                    // adjust SPRAY_THRESHOLD - decrease
+                    SPRAY_THRESHOLD += STEP_SIZE_FOR_INCREMENTS;
+                    break;
+                case 3:
+                    // adjust ENABLE_TRIGGER_VALUE - toggle
+                    ENABLE_TRIGGER_VALUE = 1;
+                    break;
+                case 4:
+                    // adjust ENABLE_ALERT_VALUE - toggle
+                    ENABLE_ALERT_VALUE = 1;
+                    break;
+                default:
+                    break;
+                }
+            }
+        }
+    }
+    else if (key == 4)
+    {
+        if (active_menu_index == -1)
+        {
+            active_menu_index = menu_hover_index;
+        }
+        else if (active_menu_index == 4)
+        {
+            if (active_trigger_index == -1)
+            {
+                active_trigger_index = trigger_hover_index;
+            }
+        }
+        else if (active_menu_index == 6)
+        {
+            if (active_config_index == -1)
+            {
+                active_config_index = config_hover_index;
+            }
+        }
+    }
+}
+
+
+
 int main(void)
 {
     LCD_1602A_init();
@@ -513,11 +704,19 @@ int main(void)
 
     float temperature;
     uint16_t distance;
-    uint8_t key;
+    uint8_t pressed_key;
 
     while (1)
     {
         ui_show_display();
         _delay_ms(20);
+
+        while ((pressed_key = KEYPAD_read()) == KEYPAD_NO_KEY);
+        _delay_ms(20);
+        if (KEYPAD_read() == pressed_key)
+        {
+            ui_process_key_command(pressed_key);
+            while (KEYPAD_read() != KEYPAD_NO_KEY); // wait until the key is released
+        }
     }
 }
