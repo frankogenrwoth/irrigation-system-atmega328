@@ -296,7 +296,7 @@ static void format_float(char *dest, size_t dest_size, float value, uint8_t prec
     }
 }
 
-void display_out(const unsigned char *title, const unsigned char *data)
+void display_set(const unsigned char *title, const unsigned char *data)
 {
     LCD_1602A_load_command(DISPLAY_CLEAR_SCREEN);
     _delay_ms(2);
@@ -360,6 +360,6 @@ int main(void)
         distance = HCSR04_get_distance();
 
         format_float(buffer, sizeof(buffer), temperature, 2, "C");
-        display_out("Temp:", buffer);
+        display_set("Temp:", buffer);
     }
 }
