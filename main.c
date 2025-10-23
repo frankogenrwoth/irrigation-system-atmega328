@@ -521,16 +521,43 @@ float get_tank_capacity()
     return volume;
 }
 
-
+/* 
+    get the refill rate based on tank capacity change over time
+    params: void
+    returns: float - the refill rate in liters per minute
+*/
 float get_refill_rate()
 {
+    float capacity_at_start = get_tank_capacity();
     _delay_ms(2000);
-    return 4.0;
+    float capacity_at_end = get_tank_capacity();
+
+    if (capacity_at_end < capacity_at_start) {
+        return 0.0; // no refill detected
+    }
+
+    float refill_rate_per_second = (capacity_at_end - capacity_at_start) / 2.0;
+
+    return refill_rate_per_second * 60.0; // convert to liters per minute
 }
 
+/*
+    get the leak rate based on tank capacity change over time
+    params: void
+    returns: float - the leak rate in liters per minute
+*/
 float get_leak_rate()
 {
-    return 1.5;
+    float capacity_at_start = get_tank_capacity();
+    _delay_ms(2000);
+    float capacity_at_end = get_tank_capacity();
+
+    if (capacity_at_start < capacity_at_end) {
+        return 0.0; // no leak detected
+    }
+    float leak_rate_per_second = (capacity_at_start - capacity_at_end) / 2.0;
+
+    return leak_rate_per_second * 60.0; // convert to liters per minute
 }
 
 float get_soil_temperature()
