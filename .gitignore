@@ -40,3 +40,4 @@ core.*
 *~
 
 deprecated.c
+/Debug/Makefile
