@@ -200,6 +200,20 @@ void LCD_1602A_print(const char* str)
     }
 }
 
+void LCD_1602A_create_char(uint8_t location, uint8_t charmap[])
+{
+    location &= 0x07;                               // only 0–7 valid
+    LCD_1602A_load_command(0x40 | (location << 3)); // Set CGRAM address
+
+    for (uint8_t i = 0; i < 8; i++)
+    {
+        LCD_1602A_load_data(charmap[i]); // write pixel pattern
+    }
+
+    // Return to DDRAM (display memory)
+    LCD_1602A_load_command(0x80);
+}
+
 /*
     initialize the lcd in 4-bit mode
     params: void
@@ -465,35 +479,87 @@ void display_set(const unsigned char *title, const unsigned char *data)
     // LCD_1602A_load_command(DISPLAY_CLEAR_SCREEN);
     _delay_ms(2);
 
-    unsigned char line1[16];
+    unsigned char line1[12];
     unsigned char line2[16];
 
     // prepare line1: copy up to 12 chars from title, pad with spaces
     int i = 0;
     for (; i < 12 && *title; ++i)
         line1[i] = *title++;
+
     for (; i < 12; ++i)
         line1[i] = ' ';
 
-    // add control commands at the end of line1
-    line1[12] = 0x7F;
-    line1[13] = '-';
-    line1[14] = '+';
-    line1[15] = 0x7E;
+    uint8_t arrow_down[8] = {
+        0x00,
+        0x04,
+        0x04,
+        0x04,
+        0x1F,
+        0x0E,
+        0x04,
+        0x00
+    };
+
+    uint8_t arrow_up[8] = {
+        0x00,
+        0x04,
+        0x0E,
+        0x1F,
+        0x04,
+        0x04,
+        0x04,
+        0x00
+    };
+
+    uint8_t arrow_right[8] = {
+        0x00,
+        0x04,
+        0x06,
+        0x1F,
+        0x06,
+        0x04,
+        0x00,
+        0x00
+    };
+
+    uint8_t arrow_left[8] = {
+        0x00,
+        0x04,
+        0x0C,
+        0x1F,
+        0x0C,
+        0x04,
+        0x00,
+        0x00
+    };
+
+    LCD_1602A_create_char(0, arrow_down); // store at location 0
+    LCD_1602A_create_char(1, arrow_up);   // store at location 1
+    LCD_1602A_create_char(2, arrow_left);   // store at location 2
+    LCD_1602A_create_char(3, arrow_right);   // store at location 3
 
     // prepare line2: copy up to 16 chars from data, pad with spaces
     i = 0;
     for (; i < 16 && *data; ++i)
         line2[i] = *data++;
+
+    // LCD_1602A_load_data(0);
+
     for (; i < 16; ++i)
         line2[i] = ' ';
 
-    // reset cursor to first line and write 16 chars
+    // reset cursor to first line and write 12 chars
     LCD_1602A_load_command(DISPLAY_SET_CURSOR_LINE_1);
-    for (i = 0; i < 16; ++i)
+    for (i = 0; i < 12; ++i)
     {
         LCD_1602A_load_data(line1[i]);
     }
+
+    LCD_1602A_load_data(2);
+    LCD_1602A_load_data(0);
+    LCD_1602A_load_data(1);
+    LCD_1602A_load_data(3);
 
     // reset cursor to second line and write 16 chars
     LCD_1602A_load_command(DISPLAY_SET_CURSOR_LINE_2);
