@@ -582,18 +582,22 @@ void ui_show_display(void)
         switch (active_menu_index)
         {
         case 0:
+            display_set("TANK CAPACITY", "Loading...");
             format_float(buffer, sizeof(buffer), get_tank_capacity(), 1, "Ltrs");
             display_set("TANK CAPACITY", buffer);
             break;
         case 1:
+            display_set("REFILL RATE", "Loading...");
             format_float(buffer, sizeof(buffer), get_refill_rate(), 1, "Ltrs per min");
             display_set("REFILL RATE", buffer);
             break;
         case 2:
+            display_set("LEAKAGE RATE", "Loading...");
             format_float(buffer, sizeof(buffer), get_leak_rate(), 1, "Ltrs per min");
             display_set("LEAKAGE RATE", buffer);
             break;
         case 3:
+            display_set("SOIL TEMPERATURE", "Loading...");
             format_float(buffer, sizeof(buffer), get_soil_temperature(), 1, "degrees");
             display_set("SOIL TEMPERATURE", buffer);
             break;
@@ -666,7 +670,6 @@ void ui_show_display(void)
         }
     }
 }
-
 
 // user process command
 /* 
@@ -863,8 +866,6 @@ int main(void)
     HCSR04_init();
     KEYPAD_init();
 
-    float temperature;
-    uint16_t distance;
     uint8_t pressed_key;
 
     while (1)
