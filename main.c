@@ -125,8 +125,20 @@ char ENABLE_TRIGGER_VALUE = 1;
 char ENABLE_ALERT_VALUE = 1;
 
 
-// lcd -1602A firmware functions
-void LCD_1602A_latch()
+// ENVIRONMENT DEFINITIONS
+#define TANK_HEIGHT_IN_CM 800
+#define TANK_RADIUS_IN_CM 5
+#define ROOM_TEMPERATURE_IN_CELCIUS 25
+#define PI 3.14159
+
+// lcd -1602A firmware api
+
+/*
+    latch api enable pin by setting it high for a brief moment and then setting it low
+    params: void
+    returns: void
+*/
+void LCD_1602A_latch(void)
 {
     LCD_1602A_CTRL_PORT |= (1 << LCD_1602A_EN);
     _delay_us(1);
@@ -134,6 +146,11 @@ void LCD_1602A_latch()
     _delay_us(100);
 }
 
+/*
+    send a nibble (4 bits) to the lcd data port
+    params: uint8_t nibble - the 4 bits to send (lower nibble is used)
+    returns: void
+*/
 void LCD_1602A_send_nibble(uint8_t nibble)
 {
     LCD_1602A_DATA_PORT &= ~((1 << LCD_1602A_D4) | (1 << LCD_1602A_D5) | (1 << LCD_1602A_D6) | (1 << LCD_1602A_D7));
@@ -146,6 +163,11 @@ void LCD_1602A_send_nibble(uint8_t nibble)
     LCD_1602A_latch();
 }
 
+/*
+    load a command byte to the lcd
+    params: uint8_t cmd - the command byte to send
+    returns: void
+*/
 void LCD_1602A_load_command(uint8_t cmd)
 {
     LCD_1602A_CTRL_PORT &= ~(1 << LCD_1602A_RS); // Command mode
@@ -153,6 +175,11 @@ void LCD_1602A_load_command(uint8_t cmd)
     LCD_1602A_send_nibble(cmd & 0x0F);
 }
 
+/*
+    load a data byte to the lcd
+    params: uint8_t data - the data byte to send
+    returns: void
+*/
 void LCD_1602A_load_data(uint8_t data)
 {
     LCD_1602A_CTRL_PORT |= (1 << LCD_1602A_RS); // Data mode
@@ -160,6 +187,11 @@ void LCD_1602A_load_data(uint8_t data)
     LCD_1602A_send_nibble(data & 0x0F);
 }
 
+/*
+    print a string to the lcd
+    params: const char* str - the null-terminated string to print
+    returns: void
+*/
 void LCD_1602A_print(const char* str)
 {
     while (*str)
@@ -168,7 +200,12 @@ void LCD_1602A_print(const char* str)
     }
 }
 
-void LCD_1602A_init()
+/*
+    initialize the lcd in 4-bit mode
+    params: void
+    returns: void
+*/
+void LCD_1602A_init(void)
 {
     LCD_1602A_CTRL_DDR |= (1 << LCD_1602A_RS) | (1 << LCD_1602A_EN);
     LCD_1602A_DATA_DDR |= (1 << LCD_1602A_D4) | (1 << LCD_1602A_D5) | (1 << LCD_1602A_D6) | (1 << LCD_1602A_D7);
@@ -191,6 +228,11 @@ void LCD_1602A_init()
 
 
 // temperature sensor -DS18B20 firmware functions
+/* 
+    reset the DS18B20 sensor and check for presence pulse
+    params: void
+    returns: uint8_t - 1 if presence pulse detected, 0 otherwise
+*/
 uint8_t DS18B20_reset(void)
 {
     DS18B20_OUTPUT();
@@ -204,6 +246,11 @@ uint8_t DS18B20_reset(void)
     return presence;
 }
 
+/* 
+    write a single bit to the DS18B20 sensor
+    params: uint8_t bit - the bit to write (0 or 1)
+    returns: void
+*/
 void DS18B20_write_bit(uint8_t bit)
 {
     DS18B20_OUTPUT();
@@ -221,6 +268,11 @@ void DS18B20_write_bit(uint8_t bit)
     }
 }
 
+/* 
+    write a byte to the DS18B20 sensor
+    params: uint8_t data - the byte to write
+    returns: void
+*/
 void DS18B20_write_byte(uint8_t data)
 {
     for (uint8_t i = 0; i < 8; i++)
@@ -230,6 +282,11 @@ void DS18B20_write_byte(uint8_t data)
     }
 }
 
+/* 
+    read a single bit from the DS18B20 sensor
+    params: void
+    returns: uint8_t - the bit read (0 or 1)
+*/
 uint8_t DS18B20_read_bit(void)
 {
     uint8_t bit;
@@ -243,6 +300,11 @@ uint8_t DS18B20_read_bit(void)
     return bit;
 }
 
+/* 
+    read a byte from the DS18B20 sensor
+    params: void
+    returns: uint8_t - the byte read
+*/
 uint8_t DS18B20_read_byte(void)
 {
     uint8_t data = 0;
@@ -255,6 +317,11 @@ uint8_t DS18B20_read_byte(void)
     return data;
 }
 
+/* 
+    read temperature from the DS18B20 sensor
+    params: void
+    returns: float - the temperature in degrees Celsius
+*/
 float DS18B20_read_temperature(void)
 {
     uint8_t temp_l, temp_h;
@@ -279,12 +346,22 @@ float DS18B20_read_temperature(void)
 
 
 // sonar sensor -HC-SR04 firmware functions
+/* 
+    initialize the HC-SR04 sensor pins
+    params: void
+    returns: void
+*/
 void HCSR04_init(void)
 {
     HCSR04_TRIG_DDR |= (1 << HCSR04_TRIG_PIN);
     HCSR04_ECHO_DDR &= ~(1 << HCSR04_ECHO_PIN);
 }
 
+/* 
+    trigger the HC-SR04 sensor to start measurement
+    params: void
+    returns: void
+*/
 void HCSR04_trigger(void)
 {
     HCSR04_TRIG_PORT &= ~(1 << HCSR04_TRIG_PIN);
@@ -294,6 +371,11 @@ void HCSR04_trigger(void)
     HCSR04_TRIG_PORT &= ~(1 << HCSR04_TRIG_PIN);
 }
 
+/* 
+    read the distance measurement from the HC-SR04 sensor
+    params: void
+    returns: uint16_t - the distance in centimeters
+*/
 uint16_t HCSR04_read(void)
 {
     uint32_t count = 0;
@@ -309,6 +391,11 @@ uint16_t HCSR04_read(void)
     return (uint16_t)(count / 58.0);
 }
 
+/* 
+    get the distance measurement from the HC-SR04 sensor
+    params: void
+    returns: uint16_t - the distance in centimeters
+*/
 uint16_t HCSR04_get_distance(void)
 {
     HCSR04_trigger();
@@ -317,12 +404,22 @@ uint16_t HCSR04_get_distance(void)
 
 
 // keypad -1x4 matrix firmware functions
-void KEYPAD_init()
+/* 
+    initialize the keypad pins
+    params: void
+    returns: void
+*/
+void KEYPAD_init(void)
 {
     KEYPAD_DDR &= ~((1 << KEYPAD_KEY_1) | (1 << KEYPAD_KEY_2) | (1 << KEYPAD_KEY_3) | (1 << KEYPAD_KEY_4));
     KEYPAD_PORT |= (1 << KEYPAD_KEY_1) | (1 << KEYPAD_KEY_2) | (1 << KEYPAD_KEY_3) | (1 << KEYPAD_KEY_4);
 }
 
+/* 
+    read the pressed key from the keypad
+    params: void
+    returns: uint8_t - the key number (1-4) or KEYPAD_NO_KEY if no key is pressed
+*/
 uint8_t KEYPAD_read(void)
 {
     if (!(KEYPAD_PIN & (1 << KEYPAD_KEY_1))) return 1;
@@ -333,6 +430,15 @@ uint8_t KEYPAD_read(void)
 }
 
 // display os firmaware functions
+/* 
+    format a float value into a string with specified precision and optional suffix
+    params: char* dest - destination buffer to store the formatted string
+            size_t dest_size - size of the destination buffer
+            float value - the float value to format
+            uint8_t precision - number of decimal places
+            const char* suffix - optional suffix to append
+    returns: void
+*/
 static void format_float(char *dest, size_t dest_size, float value, uint8_t precision, const char *suffix)
 {
     char num[24];
@@ -348,6 +454,12 @@ static void format_float(char *dest, size_t dest_size, float value, uint8_t prec
     }
 }
 
+/* 
+    set the display with title and data strings
+    params: const unsigned char* title - title string (max 12 chars)
+            const unsigned char* data - data string (max 16 chars)
+    returns: void
+*/
 void display_set(const unsigned char *title, const unsigned char *data)
 {
     // LCD_1602A_load_command(DISPLAY_CLEAR_SCREEN);
@@ -393,10 +505,22 @@ void display_set(const unsigned char *title, const unsigned char *data)
 
 
 // user application
+/* 
+    get the tank capacity based on sonar distance measurement
+    params: void
+    returns: float - the tank capacity in liters
+*/
 float get_tank_capacity()
 {
-    return 75.5;
+    uint16_t water_depth = HCSR04_get_distance();
+
+    uint16_t water_height = TANK_HEIGHT_IN_CM - water_depth;
+
+    // The following formula assumes the tank is a perfect cylinder: V = π * r^2 * h
+    float volume = (PI * ((float)TANK_RADIUS_IN_CM * (float)TANK_RADIUS_IN_CM) * (float)water_height) / 1000.0; // convert cm^3 to liters
+    return volume;
 }
+
 
 float get_refill_rate()
 {
@@ -415,7 +539,12 @@ float get_soil_temperature()
 }
 
 // user interface functions
-void ui_show_display()
+/* 
+    update the display based on the current active menu and hover indices
+    params: void
+    returns: void
+*/
+void ui_show_display(void)
 {
     if (active_menu_index == -1)
     {
@@ -478,11 +607,11 @@ void ui_show_display()
                 switch (active_config_index)
                 {
                 case 0:
-                    format_float(buffer, sizeof(buffer), STEP_SIZE_FOR_INCREMENTS, 1, "Ltrs");
+                    format_float(buffer, sizeof(buffer), STEP_SIZE_FOR_INCREMENTS, 1, "Units");
                     display_set("STEP SIZE", buffer);
                     break;
                 case 1:
-                    format_float(buffer, sizeof(buffer), PUMP_THRESHOLD, 1, "degrees");
+                    format_float(buffer, sizeof(buffer), PUMP_THRESHOLD, 1, "Ltrs");
                     display_set("PUMP THRESHOLD", buffer);
                     break;
                 case 2:
@@ -513,6 +642,11 @@ void ui_show_display()
 
 
 // user process command
+/* 
+    process a key command from the keypad and update the UI state
+    params: uint8_t key - the key number (1-4)
+    returns: void
+*/
 void ui_process_key_command (uint8_t key) {
     if (key == 1)
     {
