@@ -136,7 +136,7 @@ The display updates automatically; some menu items perform sensor reads and take
 When you host the Proteus schematic or an exported image, place it in `assets/` and update the README image path. Example Markdown to embed a local file (recommended path):
 
 ```markdown
-![Proteus setup](assets/proteus_setup.png)
+![Proteus setup](https://github.com/frankogenrwoth/irrigation-system-atmega328/blob/4bd009aafe130fe664749a7a14681765b3d763d5/assets/proteus_setup.png)
 ```
 
 I included a placeholder path `assets/proteus_setup.png`. Create an `assets/` folder and add your image there, or replace the path with the hosted image URL.
