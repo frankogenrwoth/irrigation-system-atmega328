@@ -73,6 +73,52 @@
 #define DISPLAY_WAIT_POWER_UP 0x03
 #define DISPLAY_4_BIT_MODE 0x02
 
+// display user interface functions
+unsigned char buffer[16];
+
+char *MENU_BUFFER[] = {
+    "Tank capacity",
+    "Refilling rate",
+    "Leakage rate",
+    "Soil temperature",
+    "Triggers",
+    "Messages",
+    "Config"};
+
+char *TRIGGERS_BUFFER[] = {
+    "MIN CAPACITY",
+    "MAX TEMP"};
+
+char *CONFIG_BUFFER[] = {
+    "Step size",
+    "Pumping threshold",
+    "Spraying threshold",
+    "Enable triggers",
+    "Enable alerts"};
+
+char *MESSAGES_BUFFER[10] = {0};
+
+int active_menu_index = -1;
+int active_trigger_index = -1;
+int active_config_index = -1;
+int active_message_index = -1;
+
+int menu_hover_index = 0;
+int trigger_hover_index = 0;
+int config_hover_index = 0;
+int message_hover_index = 0;
+
+
+// user application variables
+float MINIMUM_CAPACITY_BEFORE_REFILLING_TRIGGER = 1.0;
+float MAXIMUM_TEMPERATURE_BEFORE_PUMPING = 28.5;
+float STEP_SIZE_FOR_INCREMENTS = 0.5;
+float PUMP_THRESHOLD = 20.0;
+float SPRAY_THRESHOLD = 24.0;
+char ENABLE_TRIGGER_VALUE = 1;
+char ENABLE_ALERT_VALUE = 1;
+
+
 // lcd -1602A firmware functions
 void LCD_1602A_latch()
 {
@@ -298,7 +344,7 @@ static void format_float(char *dest, size_t dest_size, float value, uint8_t prec
 
 void display_set(const unsigned char *title, const unsigned char *data)
 {
-    LCD_1602A_load_command(DISPLAY_CLEAR_SCREEN);
+    // LCD_1602A_load_command(DISPLAY_CLEAR_SCREEN);
     _delay_ms(2);
 
     unsigned char line1[16];
@@ -340,7 +386,124 @@ void display_set(const unsigned char *title, const unsigned char *data)
 }
 
 
+// user application
+float get_tank_capacity()
+{
+    return 75.5;
+}
 
+float get_refill_rate()
+{
+    _delay_ms(2000);
+    return 4.0;
+}
+
+float get_leak_rate()
+{
+    return 1.5;
+}
+
+float get_soil_temperature()
+{
+    return DS18B20_read_temperature();
+}
+
+// user interface functions
+void ui_show_display()
+{
+    if (active_menu_index == -1)
+    {
+        display_set("MAIN MENU", MENU_BUFFER[menu_hover_index]);
+    }
+    else
+    {
+        switch (active_menu_index)
+        {
+        case 0:
+            format_float(buffer, sizeof(buffer), get_tank_capacity(), 1, "Ltrs");
+            display_set("TANK CAPACITY", buffer);
+            break;
+        case 1:
+            format_float(buffer, sizeof(buffer), get_refill_rate(), 1, "Ltrs per min");
+            display_set("REFILL RATE", buffer);
+            break;
+        case 2:
+            format_float(buffer, sizeof(buffer), get_leak_rate(), 1, "Ltrs per min");
+            display_set("LEAKAGE RATE", buffer);
+            break;
+        case 3:
+            format_float(buffer, sizeof(buffer), get_soil_temperature(), 1, "degrees");
+            display_set("SOIL TEMPERATURE", buffer);
+            break;
+        case 4:
+            if (active_trigger_index == -1)
+            {
+                display_set("TRIGGERS", TRIGGERS_BUFFER[trigger_hover_index]);
+            }
+            else
+            {
+                switch (active_trigger_index)
+                {
+                case 0:
+                    format_float(buffer, sizeof(buffer), MINIMUM_CAPACITY_BEFORE_REFILLING_TRIGGER, 1, "Ltrs");
+                    display_set("MIN CAPACITY", buffer);
+                    break;
+                case 1:
+                    format_float(buffer, sizeof(buffer), MAXIMUM_TEMPERATURE_BEFORE_PUMPING, 2, "degrees");
+                    display_set("MAX TEMP", buffer);
+                    break;
+                default:
+                    display_set("ERROR", "Invalid trigger");
+                    break;
+                }
+            }
+            break;
+
+        case 5:
+            display_set("MESSAGES", MESSAGES_BUFFER[message_hover_index]);
+            break;
+        case 6:
+            if (active_config_index == -1)
+            {
+                display_set("CONFIG", CONFIG_BUFFER[config_hover_index]);
+            }
+            else
+            {
+                switch (active_config_index)
+                {
+                case 0:
+                    format_float(buffer, sizeof(buffer), STEP_SIZE_FOR_INCREMENTS, 1, "Ltrs");
+                    display_set("STEP SIZE", buffer);
+                    break;
+                case 1:
+                    format_float(buffer, sizeof(buffer), PUMP_THRESHOLD, 1, "degrees");
+                    display_set("PUMP THRESHOLD", buffer);
+                    break;
+                case 2:
+                    format_float(buffer, sizeof(buffer), SPRAY_THRESHOLD, 1, "degrees");
+                    display_set("SPRAY THRESHOLD", buffer);
+                    break;
+                case 3:
+                    snprintf(buffer, sizeof(buffer), "%s", ENABLE_TRIGGER_VALUE ? "Enabled" : "Disabled");
+                    display_set("ENABLE TRIGGERS", buffer);
+                    break;
+                case 4:
+                    snprintf(buffer, sizeof(buffer), "%s", ENABLE_ALERT_VALUE ? "Enabled" : "Disabled");
+                    display_set("ENABLE ALERTS", buffer);
+                    break;
+                default:
+                    display_set("ERROR", "Invalid config");
+                    break;
+                }
+            }
+            break;
+
+        default:
+            display_set("ERROR", "Invalid menu");
+            break;
+        }
+    }
+}
 
 int main(void)
 {
@@ -348,18 +511,13 @@ int main(void)
     HCSR04_init();
     KEYPAD_init();
 
-    unsigned char buffer[16];
-
     float temperature;
     uint16_t distance;
     uint8_t key;
 
     while (1)
     {
-        temperature = DS18B20_read_temperature();
-        distance = HCSR04_get_distance();
-
-        format_float(buffer, sizeof(buffer), temperature, 2, "C");
-        display_set("Temp:", buffer);
+        ui_show_display();
+        _delay_ms(20);
     }
 }
