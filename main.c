@@ -6,6 +6,9 @@
 
 #define F_CPU 16000000L
 
+#include <string.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <avr/io.h>
 #include <util/delay.h>
 #include <stdint.h>
@@ -58,6 +61,18 @@
 #define KEYPAD_PIN PINB
 #define KEYPAD_DDR DDRB
 
+
+// display os definitions
+#define DISPLAY_CLEAR_SCREEN 0x01
+#define DISPLAY_RETURN_HOME 0x02
+#define DISPLAY_ENTRY_MODE_SET 0x06
+#define DISPLAY_DISPLAY_ON_CURSOR_OFF 0x0C
+#define DISPLAY_FUNCTION_SET_4BIT_2LINE 0x28
+#define DISPLAY_SET_CURSOR_LINE_1 0x80
+#define DISPLAY_SET_CURSOR_LINE_2 0xC0
+#define DISPLAY_WAIT_POWER_UP 0x03
+#define DISPLAY_4_BIT_MODE 0x02
+
 // lcd -1602A firmware functions
 void LCD_1602A_latch()
 {
@@ -107,17 +122,18 @@ void LCD_1602A_init()
     LCD_1602A_DATA_DDR |= (1 << LCD_1602A_D4) | (1 << LCD_1602A_D5) | (1 << LCD_1602A_D6) | (1 << LCD_1602A_D7);
 
     _delay_ms(20); // Wait for LCD power up
-    LCD_1602A_send_nibble(0x03);
+    LCD_1602A_send_nibble(DISPLAY_WAIT_POWER_UP);
     _delay_ms(5);
-    LCD_1602A_send_nibble(0x03);
+    LCD_1602A_send_nibble(DISPLAY_WAIT_POWER_UP);
     _delay_us(150);
-    LCD_1602A_send_nibble(0x03);
-    LCD_1602A_send_nibble(0x02); // Switch to 4-bit mode
+    LCD_1602A_send_nibble(DISPLAY_WAIT_POWER_UP);
 
-    LCD_1602A_load_command(0x28); // 4-bit, 2 lines, 5x8 font
-    LCD_1602A_load_command(0x0C); // Display ON, Cursor OFF
-    LCD_1602A_load_command(0x06); // Entry mode: auto increment cursor
-    LCD_1602A_load_command(0x01); // Clear display
+    LCD_1602A_send_nibble(DISPLAY_4_BIT_MODE); // Switch to 4-bit mode
+
+    LCD_1602A_load_command(DISPLAY_FUNCTION_SET_4BIT_2LINE);
+    LCD_1602A_load_command(DISPLAY_DISPLAY_ON_CURSOR_OFF);
+    LCD_1602A_load_command(DISPLAY_ENTRY_MODE_SET);
+    LCD_1602A_load_command(DISPLAY_CLEAR_SCREEN);
     _delay_ms(2);
 }
 
@@ -249,7 +265,6 @@ uint16_t HCSR04_get_distance(void)
 
 
 // keypad -1x4 matrix firmware functions
-
 void KEYPAD_init()
 {
     KEYPAD_DDR &= ~(1 << KEYPAD_KEY_1) & ~(1 << KEYPAD_KEY_2) & ~(1 << KEYPAD_KEY_3) & ~(1 << KEYPAD_KEY_4);
@@ -265,6 +280,65 @@ uint8_t KEYPAD_read(void)
     return KEYPAD_NO_KEY;
 }
 
+// display os firmaware functions
+static void format_float(char *dest, size_t dest_size, float value, uint8_t precision, const char *suffix)
+{
+    char num[24];
+
+    dtostrf(value, 0, precision, num);
+    if (suffix && *suffix)
+    {
+        snprintf(dest, dest_size, "%s %s", num, suffix);
+    }
+    else
+    {
+        snprintf(dest, dest_size, "%s", num);
+    }
+}
+
+void display_out(const unsigned char *title, const unsigned char *data)
+{
+    LCD_1602A_load_command(DISPLAY_CLEAR_SCREEN);
+    _delay_ms(2);
+
+    unsigned char line1[16];
+    unsigned char line2[16];
+
+    // prepare line1: copy up to 12 chars from title, pad with spaces
+    int i = 0;
+    for (; i < 12 && *title; ++i)
+        line1[i] = *title++;
+    for (; i < 12; ++i)
+        line1[i] = ' ';
+
+    // add control commands at the end of line1
+    line1[12] = 0x7F;
+    line1[13] = '-';
+    line1[14] = '+';
+    line1[15] = 0x7E;
+
+    // prepare line2: copy up to 16 chars from data, pad with spaces
+    i = 0;
+    for (; i < 16 && *data; ++i)
+        line2[i] = *data++;
+    for (; i < 16; ++i)
+        line2[i] = ' ';
+
+    // reset cursor to first line and write 16 chars
+    LCD_1602A_load_command(DISPLAY_SET_CURSOR_LINE_1);
+    for (i = 0; i < 16; ++i)
+    {
+        LCD_1602A_load_data(line1[i]);
+    }
+
+    // reset cursor to second line and write 16 chars
+    LCD_1602A_load_command(DISPLAY_SET_CURSOR_LINE_2);
+    for (i = 0; i < 16; ++i)
+    {
+        LCD_1602A_load_data(line2[i]);
+    }
+}
+
 
 
 
@@ -274,30 +348,18 @@ int main(void)
     HCSR04_init();
     KEYPAD_init();
 
-    LCD_1602A_print("Booting...");
-    _delay_ms(200);
+    unsigned char buffer[16];
 
     float temperature;
     uint16_t distance;
     uint8_t key;
 
-    LCD_1602A_load_command(0x01);
-    LCD_1602A_print("Ready");
     while (1)
     {
-        while ((key = KEYPAD_read()) == KEYPAD_NO_KEY);
-        _delay_ms(200);
-
-        _delay_ms(5000);
         temperature = DS18B20_read_temperature();
         distance = HCSR04_get_distance();
 
-        char buffer[16];
-        snprintf(buffer, sizeof(buffer), "Dist: %d cm", distance);
-
-        LCD_1602A_load_command(0x01); // clear
-        _delay_ms(2);
-        LCD_1602A_print(buffer);
-        _delay_ms(1000);
+        format_float(buffer, sizeof(buffer), temperature, 2, "C");
+        display_out("Temp:", buffer);
     }
 }
