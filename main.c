@@ -13,9 +13,15 @@
 #include <util/delay.h>
 #include <stdint.h>
 
+// led port definition
+#define SYSTEM_ACTIVE_LED_PIN PC1
+#define SYSTEM_ACTIVE_LED_PORT PORTC
+#define SYSTEM_ACTIVE_LED_DDR DDRC
+
+
 // lcd -1602A pin definitions
-#define LCD_1602A_RS PB1
-#define LCD_1602A_EN PB0
+#define LCD_1602A_RS PB0
+#define LCD_1602A_EN PB1
 
 #define LCD_1602A_D4 PD4
 #define LCD_1602A_D5 PD5
@@ -83,9 +89,18 @@ char *MENU_BUFFER[] = {
     "Refilling rate",
     "Leakage rate",
     "Soil temperature",
+    "Live View",
     "Triggers",
     "Messages",
-    "Config"
+    "Config",
+};
+
+
+char *LIVE_VIEW_BUFFER[] = {
+    "Capacity",
+    "Refill Rate",
+    "Leak Rate",
+    "Soil Temp"
 };
 
 char *TRIGGERS_BUFFER[] = {
@@ -107,11 +122,13 @@ int active_menu_index = -1;
 int active_trigger_index = -1;
 int active_config_index = -1;
 int active_message_index = -1;
+int active_live_view_index = -1;
 
 int menu_hover_index = 0;
 int trigger_hover_index = 0;
 int config_hover_index = 0;
 int message_hover_index = 0;
+int live_view_hover_index = 0;
 
 
 // user application variables
@@ -126,11 +143,47 @@ char ENABLE_ALERT_VALUE = 1;
 
 
 // ENVIRONMENT DEFINITIONS
-#define TANK_HEIGHT_IN_CM 800
-#define TANK_RADIUS_IN_CM 5
+#define TANK_HEIGHT_IN_CM 15.6
+#define TANK_RADIUS_IN_CM 8.0
 #define ROOM_TEMPERATURE_IN_CELCIUS 25
 #define PI 3.14159
 
+// live view variables
+float current_tank_capacity = 0.0;
+float current_refill_rate = 0.0;
+float current_leak_rate = 0.0;
+float current_soil_temperature = 0.0;
+
+
+// led firmware functions
+
+
+void LED_SYSTEM_ACTIVE_INIT(void)
+{
+    SYSTEM_ACTIVE_LED_DDR |= (1 << SYSTEM_ACTIVE_LED_PIN);
+    SYSTEM_ACTIVE_LED_PORT &= ~(1 << SYSTEM_ACTIVE_LED_PIN);
+
+}
+
+/*
+    turn off the system active LED
+    params: void
+    returns: void
+*/
+void LED_system_active_off(void)
+{
+    SYSTEM_ACTIVE_LED_PORT &= ~(1 << SYSTEM_ACTIVE_LED_PIN);
+}
+
+/* 
+    turn on the system active LED
+    params: void
+    returns: void
+*/
+void LED_system_active_on(void)
+{
+    SYSTEM_ACTIVE_LED_PORT |= (1 << SYSTEM_ACTIVE_LED_PIN);
+}
 // lcd -1602A firmware api
 
 /*
@@ -379,9 +432,9 @@ void HCSR04_init(void)
 void HCSR04_trigger(void)
 {
     HCSR04_TRIG_PORT &= ~(1 << HCSR04_TRIG_PIN);
-    _delay_ms(200);
+    _delay_ms(400);
     HCSR04_TRIG_PORT |= (1 << HCSR04_TRIG_PIN);
-    _delay_ms(200);
+    _delay_ms(400);
     HCSR04_TRIG_PORT &= ~(1 << HCSR04_TRIG_PIN);
 }
 
@@ -442,6 +495,7 @@ uint8_t KEYPAD_read(void)
     if (!(KEYPAD_PIN & (1 << KEYPAD_KEY_4))) return 4;
     return KEYPAD_NO_KEY;
 }
+
 
 // display os firmaware functions
 /* 
@@ -579,11 +633,15 @@ void display_set(const unsigned char *title, const unsigned char *data)
 float get_tank_capacity()
 {
     uint16_t water_depth = HCSR04_get_distance();
+    water_depth *= 1.5; // convert to float
 
-    uint16_t water_height = TANK_HEIGHT_IN_CM - water_depth;
+    float water_height = TANK_HEIGHT_IN_CM - water_depth;
 
-    // The following formula assumes the tank is a perfect cylinder: V = π * r^2 * h
-    float volume = (PI * ((float)TANK_RADIUS_IN_CM * (float)TANK_RADIUS_IN_CM) * (float)water_height) / 1000.0; // convert cm^3 to liters
+    // // The following formula assumes the tank is a perfect cylinder: V = π * r^2 * h
+    float volume = (PI * ((float)TANK_RADIUS_IN_CM * (float)TANK_RADIUS_IN_CM) * water_height) / 1000.0; // convert cm^3 to liters
+    if (volume < 0.0) {
+        volume = 0.0;
+    }
     return volume;
 }
 
@@ -595,16 +653,16 @@ float get_tank_capacity()
 float get_refill_rate()
 {
     float capacity_at_start = get_tank_capacity();
-    _delay_ms(2000);
+    _delay_ms(1000);
     float capacity_at_end = get_tank_capacity();
 
     if (capacity_at_end < capacity_at_start) {
-        return 0.0; // no refill detected
+        return 0.0;
     }
 
     float refill_rate_per_second = (capacity_at_end - capacity_at_start) / 2.0;
 
-    return refill_rate_per_second * 60.0; // convert to liters per minute
+    return refill_rate_per_second * 60.0 * 60.0;
 }
 
 /*
@@ -654,7 +712,7 @@ void ui_show_display(void)
             break;
         case 1:
             display_set("REFILL RATE", "Loading...");
-            format_float(buffer, sizeof(buffer), get_refill_rate(), 1, "Ltrs per min");
+            format_float(buffer, sizeof(buffer), get_refill_rate(), 1, "Ltrs per hour");
             display_set("REFILL RATE", buffer);
             break;
         case 2:
@@ -668,6 +726,37 @@ void ui_show_display(void)
             display_set("SOIL TEMPERATURE", buffer);
             break;
         case 4:
+            if (active_live_view_index == -1)
+            {
+                display_set("LIVE VIEW", LIVE_VIEW_BUFFER[live_view_hover_index]);
+            }
+            else
+            {
+                switch (live_view_hover_index)
+                {
+                case 0:
+                    format_float(buffer, sizeof(buffer), current_tank_capacity, 1, "Ltrs");
+                    display_set("CAPACITY", buffer);
+                    break;
+                case 1:
+                    format_float(buffer, sizeof(buffer), current_refill_rate, 1, "Ltrs per min");
+                    display_set("REFILL RATE", buffer);
+                    break;
+                case 2:
+                    format_float(buffer, sizeof(buffer), current_leak_rate, 1, "Ltrs per min");
+                    display_set("LEAK RATE", buffer);
+                    break;
+                case 3:
+                    format_float(buffer, sizeof(buffer), current_soil_temperature, 1, "degrees");
+                    display_set("SOIL TEMP", buffer);
+                    break;
+                default:
+                    display_set("ERROR", "Invalid live view");
+                    break;
+                }
+            }
+            break;
+        case 5:
             if (active_trigger_index == -1)
             {
                 display_set("TRIGGERS", TRIGGERS_BUFFER[trigger_hover_index]);
@@ -691,10 +780,10 @@ void ui_show_display(void)
             }
             break;
 
-        case 5:
+        case 7:
             display_set("MESSAGES", MESSAGES_BUFFER[message_hover_index]);
             break;
-        case 6:
+        case 8:
             if (active_config_index == -1)
             {
                 display_set("CONFIG", CONFIG_BUFFER[config_hover_index]);
@@ -760,6 +849,10 @@ void ui_process_key_command (uint8_t key) {
             {
                 active_config_index = -1;
             }
+            else if (active_live_view_index != -1)
+            {
+                active_live_view_index = -1;
+            }
             else
             {
                 active_menu_index = -1;
@@ -770,10 +863,16 @@ void ui_process_key_command (uint8_t key) {
     {
         if (active_menu_index == -1)
         {
-            if (menu_hover_index < 6)
+            if (menu_hover_index < (sizeof(MENU_BUFFER)/sizeof(MENU_BUFFER[0]) - 1))
                 menu_hover_index++; // navigate downwards on the main menu
         }
-        else if (active_menu_index == 4) 
+        else if (active_menu_index == 4)
+        {
+            // user is in the live view menu
+            if (live_view_hover_index < (sizeof(LIVE_VIEW_BUFFER)/sizeof(LIVE_VIEW_BUFFER[0]) - 1))
+                live_view_hover_index++; // navigate downwards on the live view menu
+        }
+        else if (active_menu_index == 5) 
         {
             // user is in the triggers menu
             if (active_trigger_index == -1)
@@ -795,11 +894,11 @@ void ui_process_key_command (uint8_t key) {
                 }
             }
         }
-        else if (active_menu_index == 5) {
+        else if (active_menu_index == 6) {
             if (message_hover_index < MSG_BUFFER_SIZE - 1)
                 message_hover_index++;
         }
-        else if (active_menu_index == 6)
+        else if (active_menu_index == 7)
         {
             if (active_config_index == -1)
             {
@@ -843,6 +942,12 @@ void ui_process_key_command (uint8_t key) {
         }
         else if (active_menu_index == 4)
         {
+            // user is in the live view menu
+            if (live_view_hover_index > 0)
+                live_view_hover_index--;
+        }
+        else if (active_menu_index == 5)
+        {
             if (active_trigger_index == -1)
             {
                 if (trigger_hover_index > 0)
@@ -862,11 +967,11 @@ void ui_process_key_command (uint8_t key) {
                 }
             }
         } 
-        else if (active_menu_index == 5) {
+        else if (active_menu_index == 6) {
             if (message_hover_index > 0)
                 message_hover_index--;
         }
-        else if (active_menu_index == 6)
+        else if (active_menu_index == 7)
         {
             if (active_config_index == -1)
             {
@@ -909,12 +1014,19 @@ void ui_process_key_command (uint8_t key) {
         }
         else if (active_menu_index == 4)
         {
+            if (active_live_view_index == -1)
+            {
+                active_live_view_index = live_view_hover_index;
+            }
+        }
+        else if (active_menu_index == 5)
+        {
             if (active_trigger_index == -1)
             {
                 active_trigger_index = trigger_hover_index;
             }
         }
-        else if (active_menu_index == 6)
+        else if (active_menu_index == 7)
         {
             if (active_config_index == -1)
             {
@@ -924,27 +1036,86 @@ void ui_process_key_command (uint8_t key) {
     }
 }
 
-
-
 int main(void)
 {
     LCD_1602A_init();
     HCSR04_init();
     KEYPAD_init();
 
+    LED_SYSTEM_ACTIVE_INIT();
+    // float temperature;
+
+    // while (1)
+    // {
+    //     temperature = DS18B20_read_temperature();
+    //     LCD_1602A_print("Temp: ");
+
+    //     LCD_1602A_print(dtostrf(temperature, 2, 1, buffer));
+    //     LCD_1602A_print(" C");
+    //     _delay_ms(1000);
+    // }
+
     uint8_t pressed_key;
 
     while (1)
     {
+        while (active_menu_index == 4 && active_live_view_index != -1)
+        {
+            // in live view, continuously update values
+            LED_system_active_on();
+            switch (live_view_hover_index)
+            {
+                case 0:
+                    display_set("CAPACITY", "Updating...");
+                    current_tank_capacity = get_tank_capacity();
+                    break;
+                case 1:
+                    display_set("REFILL RATE", "Updating...");
+                    current_refill_rate = get_refill_rate();
+                    break;
+                case 2:
+                    display_set("LEAK RATE", "Updating...");
+                    current_leak_rate = get_leak_rate();
+                    break;
+
+                case 3:
+                    display_set("SOIL TEMP", "Updating...");
+                    current_soil_temperature = get_soil_temperature();
+                    break;
+            }
+            LED_system_active_off();
+
+            ui_show_display();
+            _delay_ms(1000);
+
+            if ((pressed_key = KEYPAD_read()) != KEYPAD_NO_KEY)
+            {
+                if (pressed_key == 1)
+                {
+                    // exit live view on key 1 press
+                    active_menu_index = -1;
+                    pressed_key = KEYPAD_NO_KEY;
+                    break;
+                }
+                ui_process_key_command(pressed_key);
+                while (KEYPAD_read() != KEYPAD_NO_KEY); // wait until the key is released
+            }
+        }
+
         ui_show_display();
         _delay_ms(20);
 
-        while ((pressed_key = KEYPAD_read()) == KEYPAD_NO_KEY);
+        if (pressed_key == KEYPAD_NO_KEY) {
+            while ((pressed_key = KEYPAD_read()) == KEYPAD_NO_KEY);
+        }
+        
         _delay_ms(20);
         if (KEYPAD_read() == pressed_key)
         {
             ui_process_key_command(pressed_key);
             while (KEYPAD_read() != KEYPAD_NO_KEY); // wait until the key is released
         }
+
+        pressed_key = KEYPAD_NO_KEY;
     }
 }
