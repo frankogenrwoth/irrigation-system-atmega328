@@ -6,12 +6,16 @@
 
 #define F_CPU 16000000L
 
+#include <avr/interrupt.h>
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <avr/io.h>
 #include <util/delay.h>
 #include <stdint.h>
+
+// interrupt definitions
+volatile uint8_t tick = 0;
 
 // led port definition
 #define SYSTEM_ACTIVE_LED_PIN PC1
@@ -154,6 +158,120 @@ float current_refill_rate = 0.0;
 float current_leak_rate = 0.0;
 float current_soil_temperature = 0.0;
 
+
+int PADDED_SECOND_LIST_SIZE = 10;
+char SHOW_LOADING_WIDGET = 0;
+
+
+// queue for keeping 10 distances implemented in the padded second heights
+#define PADDED_SECOND_LIST_SIZE 10 // max queue size
+
+typedef struct {
+    int data[PADDED_SECOND_LIST_SIZE];
+    int front;
+    int rear;
+} Queue;
+
+// Initialize the queue
+void initQueue(Queue *q) {
+    q->front = -1;
+    q->rear = -1;
+}
+
+// Check if empty
+int isEmpty(Queue *q) {
+    return (q->front == -1);
+}
+
+// Check if full
+int isFull(Queue *q) {
+    return ((q->rear + 1) % PADDED_SECOND_LIST_SIZE == q->front);
+}
+
+// Remove (dequeue)
+int dequeue(Queue *q) {
+    if (isEmpty(q)) {
+        printf("Queue is empty!\n");
+        return -1;
+    }
+
+    int value = q->data[q->front];
+
+    if (q->front == q->rear) {
+        // only one element left
+        q->front = q->rear = -1;
+    } else {
+        q->front = (q->front + 1) % PADDED_SECOND_LIST_SIZE;
+    }
+
+    return value;
+}
+
+
+// Add (enqueue)
+void enqueue(Queue *q, int value) {
+    // If queue is full, overwrite the oldest (drop the first uploaded)
+    if (isFull(q)) {
+        // advance front and rear to make room for the new value (overwrite oldest)
+        q->front = (q->front + 1) % PADDED_SECOND_LIST_SIZE;
+        q->rear = (q->rear + 1) % PADDED_SECOND_LIST_SIZE;
+        q->data[q->rear] = value;
+        // optional debug print
+        printf("Queue full, overwrote oldest with: %d\n", value);
+        return;
+    }
+
+    if (isEmpty(q)) {
+        q->front = 0;
+        q->rear = 0;
+        q->data[q->rear] = value;
+        printf("Enqueued: %d\n", value);
+        return;
+    }
+
+    q->rear = (q->rear + 1) % PADDED_SECOND_LIST_SIZE;
+    q->data[q->rear] = value;
+    printf("Enqueued: %d\n", value);
+}
+
+// Peek at the first (oldest) element without removing it.
+// Returns 0 on success and writes value to *out, -1 if empty.
+int peekFront(Queue *q, int *out) {
+    if (isEmpty(q)) return -1;
+    *out = q->data[q->front];
+    return 0;
+}
+
+// Peek at the last (newest) element without removing it.
+// Returns 0 on success and writes value to *out, -1 if empty.
+int peekRear(Queue *q, int *out) {
+    if (isEmpty(q)) return -1;
+    *out = q->data[q->rear];
+    return 0;
+}
+
+// Get number of elements currently in the queue
+int queueSize(Queue *q) {
+    if (isEmpty(q)) return 0;
+    if (q->rear >= q->front) return (q->rear - q->front + 1);
+    return (PADDED_SECOND_LIST_SIZE - q->front + q->rear + 1);
+}
+
+
+Queue height_per_second;
+
+// timer0 for calculating in the background
+void TIMER0_INIT(void)
+{
+
+    DDRC |= (1 << PC2);
+    PORTC &= ~(1 << PC2);
+
+    TCCR2A = 0x00;                                    // normal mode
+    TCCR2B = (1 << CS22) | (1 << CS21) | (1 << CS20); // prescaler = 1024
+    TIMSK2 = (1 << TOIE2);                            // enable overflow interrupt
+    sei();                                            // enable global interrupts
+}
 
 // led firmware functions
 
@@ -624,6 +742,21 @@ void display_set(const unsigned char *title, const unsigned char *data)
 }
 
 
+float get_tank_capacity_at_height(int water_depth)
+{
+    float water_height = (float)TANK_HEIGHT_IN_CM - (float)water_depth;
+
+    // // The following formula assumes the tank is a perfect cylinder: V = π * r^2 * h
+    float volume = (PI * ((float)TANK_RADIUS_IN_CM * (float)TANK_RADIUS_IN_CM) * water_height) / 1000.0; // convert cm^3 to liters
+
+    if (volume < 0.0)
+    {
+        volume = 0.0;
+    }
+
+    return volume;
+}
+
 // user application
 /* 
     get the tank capacity based on sonar distance measurement
@@ -632,6 +765,7 @@ void display_set(const unsigned char *title, const unsigned char *data)
 */
 float get_tank_capacity()
 {
+
     uint16_t water_depth = HCSR04_get_distance();
     water_depth *= 1.5; // convert to float
 
@@ -652,17 +786,23 @@ float get_tank_capacity()
 */
 float get_refill_rate()
 {
-    float capacity_at_start = get_tank_capacity();
-    _delay_ms(1000);
-    float capacity_at_end = get_tank_capacity();
+    int height_1;
+    peekRear(&height_per_second, &height_1);
 
-    if (capacity_at_end < capacity_at_start) {
-        return 0.0;
+    int height_2;
+    peekFront(&height_per_second, &height_2);
+
+    float capacity_at_1 = get_tank_capacity_at_height(height_1 * 1.5);
+    float capacity_at_2 = get_tank_capacity_at_height(height_2 * 1.5);
+
+    if (capacity_at_1 > capacity_at_2)
+    {
+        return 0.0; // no leak detected
     }
 
-    float refill_rate_per_second = (capacity_at_end - capacity_at_start) / 2.0;
+    float leak_rate_per_second = (capacity_at_2 - capacity_at_1) / 2.0;
 
-    return refill_rate_per_second * 60.0 * 60.0;
+    return leak_rate_per_second * 60.0; // convert to liters per minute
 }
 
 /*
@@ -672,14 +812,19 @@ float get_refill_rate()
 */
 float get_leak_rate()
 {
-    float capacity_at_start = get_tank_capacity();
-    _delay_ms(2000);
-    float capacity_at_end = get_tank_capacity();
+    int height_1;
+    peekRear(&height_per_second, &height_1);
 
-    if (capacity_at_start < capacity_at_end) {
+    int height_2;
+    peekFront(&height_per_second, &height_2);
+
+    float capacity_at_1 = get_tank_capacity_at_height(height_1 * 1.5);
+    float capacity_at_2 = get_tank_capacity_at_height(height_2 * 1.5);
+
+    if (capacity_at_1 < capacity_at_2) {
         return 0.0; // no leak detected
     }
-    float leak_rate_per_second = (capacity_at_start - capacity_at_end) / 2.0;
+    float leak_rate_per_second = (capacity_at_1 - capacity_at_2) / 2.0;
 
     return leak_rate_per_second * 60.0; // convert to liters per minute
 }
@@ -780,10 +925,10 @@ void ui_show_display(void)
             }
             break;
 
-        case 7:
+        case 6:
             display_set("MESSAGES", MESSAGES_BUFFER[message_hover_index]);
             break;
-        case 8:
+        case 7:
             if (active_config_index == -1)
             {
                 display_set("CONFIG", CONFIG_BUFFER[config_hover_index]);
@@ -1036,29 +1181,37 @@ void ui_process_key_command (uint8_t key) {
     }
 }
 
+ISR(TIMER2_OVF_vect)
+{
+    tick++;
+   
+    if (tick >= 62) {
+        tick = 0;
+        enqueue(&height_per_second, HCSR04_get_distance());
+        PORTC ^= (1 << PC2); // toggle PC2 every second    
+    }
+    
+}
+
 int main(void)
 {
+    initQueue(&height_per_second);
     LCD_1602A_init();
     HCSR04_init();
     KEYPAD_init();
 
     LED_SYSTEM_ACTIVE_INIT();
-    // float temperature;
-
-    // while (1)
-    // {
-    //     temperature = DS18B20_read_temperature();
-    //     LCD_1602A_print("Temp: ");
-
-    //     LCD_1602A_print(dtostrf(temperature, 2, 1, buffer));
-    //     LCD_1602A_print(" C");
-    //     _delay_ms(1000);
-    // }
+    TIMER0_INIT();
 
     uint8_t pressed_key;
 
     while (1)
     {
+        if (TIFR2 & (1<<TOV2)) {  // overflow flag set?
+            TIFR2 |= (1<<TOV2);   // clear it
+            PORTB ^= (1<<PB0);    // toggle LED
+        }
+
         while (active_menu_index == 4 && active_live_view_index != -1)
         {
             // in live view, continuously update values
@@ -1066,20 +1219,39 @@ int main(void)
             switch (live_view_hover_index)
             {
                 case 0:
-                    display_set("CAPACITY", "Updating...");
+                    if (!(SHOW_LOADING_WIDGET)) {
+                        display_set("CAPACITY", "Updating...");
+                        SHOW_LOADING_WIDGET = 1;
+                    }
+                    
                     current_tank_capacity = get_tank_capacity();
                     break;
                 case 1:
-                    display_set("REFILL RATE", "Updating...");
+                    if (!(SHOW_LOADING_WIDGET))
+                    {
+                        display_set("REFILL RATE", "Updating...");
+                        SHOW_LOADING_WIDGET = 1;
+                    }
+                    
                     current_refill_rate = get_refill_rate();
                     break;
                 case 2:
-                    display_set("LEAK RATE", "Updating...");
+                    if (!(SHOW_LOADING_WIDGET))
+                    {
+                        display_set("LEAK RATE", "Updating...");
+                        SHOW_LOADING_WIDGET = 1;
+                    }
+                    
                     current_leak_rate = get_leak_rate();
                     break;
 
                 case 3:
-                    display_set("SOIL TEMP", "Updating...");
+                    if (!(SHOW_LOADING_WIDGET))
+                    {
+                        display_set("SOIL TEMP", "Updating...");
+                        SHOW_LOADING_WIDGET = 1;
+                    }
+                    
                     current_soil_temperature = get_soil_temperature();
                     break;
             }
@@ -1095,12 +1267,14 @@ int main(void)
                     // exit live view on key 1 press
                     active_menu_index = -1;
                     pressed_key = KEYPAD_NO_KEY;
+                    SHOW_LOADING_WIDGET = 0;
                     break;
                 }
                 ui_process_key_command(pressed_key);
                 while (KEYPAD_read() != KEYPAD_NO_KEY); // wait until the key is released
             }
         }
+        
 
         ui_show_display();
         _delay_ms(20);
