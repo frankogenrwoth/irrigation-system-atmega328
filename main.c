@@ -120,7 +120,6 @@ char *CONFIG_BUFFER[] = {
     "Enable alerts"
 };
 
-char *MESSAGES_BUFFER[MSG_BUFFER_SIZE] = {"No message", "No message", "No message", "No message"};
 
 int active_menu_index = -1;
 int active_trigger_index = -1;
@@ -159,15 +158,16 @@ float current_leak_rate = 0.0;
 float current_soil_temperature = 0.0;
 
 
-int PADDED_SECOND_LIST_SIZE = 10;
+int BUFFER_SIZE = 
+10;
 char SHOW_LOADING_WIDGET = 0;
 
 
 // queue for keeping 10 distances implemented in the padded second heights
-#define PADDED_SECOND_LIST_SIZE 10 // max queue size
+#define BUFFER_SIZE 10 // max queue size
 
 typedef struct {
-    int data[PADDED_SECOND_LIST_SIZE];
+    int data[BUFFER_SIZE];
     int front;
     int rear;
 } Queue;
@@ -185,7 +185,7 @@ int isEmpty(Queue *q) {
 
 // Check if full
 int isFull(Queue *q) {
-    return ((q->rear + 1) % PADDED_SECOND_LIST_SIZE == q->front);
+    return ((q->rear + 1) % BUFFER_SIZE == q->front);
 }
 
 // Remove (dequeue)
@@ -201,7 +201,7 @@ int dequeue(Queue *q) {
         // only one element left
         q->front = q->rear = -1;
     } else {
-        q->front = (q->front + 1) % PADDED_SECOND_LIST_SIZE;
+        q->front = (q->front + 1) % BUFFER_SIZE;
     }
 
     return value;
@@ -213,8 +213,8 @@ void enqueue(Queue *q, int value) {
     // If queue is full, overwrite the oldest (drop the first uploaded)
     if (isFull(q)) {
         // advance front and rear to make room for the new value (overwrite oldest)
-        q->front = (q->front + 1) % PADDED_SECOND_LIST_SIZE;
-        q->rear = (q->rear + 1) % PADDED_SECOND_LIST_SIZE;
+        q->front = (q->front + 1) % BUFFER_SIZE;
+        q->rear = (q->rear + 1) % BUFFER_SIZE;
         q->data[q->rear] = value;
         // optional debug print
         printf("Queue full, overwrote oldest with: %d\n", value);
@@ -229,7 +229,7 @@ void enqueue(Queue *q, int value) {
         return;
     }
 
-    q->rear = (q->rear + 1) % PADDED_SECOND_LIST_SIZE;
+    q->rear = (q->rear + 1) % BUFFER_SIZE;
     q->data[q->rear] = value;
     printf("Enqueued: %d\n", value);
 }
@@ -254,11 +254,114 @@ int peekRear(Queue *q, int *out) {
 int queueSize(Queue *q) {
     if (isEmpty(q)) return 0;
     if (q->rear >= q->front) return (q->rear - q->front + 1);
-    return (PADDED_SECOND_LIST_SIZE - q->front + q->rear + 1);
+    return (BUFFER_SIZE - q->front + q->rear + 1);
 }
 
 
 Queue height_per_second;
+// String message queue (separate from integer queue)
+#define MESSAGE_QUEUE_SIZE 10
+
+typedef struct {
+    char *data[MESSAGE_QUEUE_SIZE];
+    int front;
+    int rear;
+} StrQueue;
+
+// Initialize the string queue
+void initStrQueue(StrQueue *q) {
+    q->front = -1;
+    q->rear = -1;
+    for (int i = 0; i < MESSAGE_QUEUE_SIZE; ++i) q->data[i] = NULL;
+}
+
+// Check if string queue is empty
+int isStrQueueEmpty(StrQueue *q) {
+    return (q->front == -1);
+}
+
+// Check if string queue is full
+int isStrQueueFull(StrQueue *q) {
+    return ((q->rear + 1) % MESSAGE_QUEUE_SIZE == q->front);
+}
+
+// Remove (dequeue) from string queue. Returns pointer to malloc'd string (caller must free), or NULL if empty.
+char *dequeueStr(StrQueue *q) {
+    if (isStrQueueEmpty(q)) {
+        printf("String queue is empty!\n");
+        return NULL;
+    }
+
+    char *value = q->data[q->front];
+    q->data[q->front] = NULL;
+
+    if (q->front == q->rear) {
+        // only one element left
+        q->front = q->rear = -1;
+    } else {
+        q->front = (q->front + 1) % MESSAGE_QUEUE_SIZE;
+    }
+
+    return value;
+}
+
+// Add (enqueue) a copy of the string to the queue. On overwrite, the oldest string is freed.
+void enqueueStr(StrQueue *q, const char *value) {
+    if (!value) return; // ignore NULL
+
+    size_t len = strlen(value) + 1;
+    char *copy = (char *)malloc(len);
+    if (!copy) {
+        printf("enqueueStr: malloc failed\n");
+        return;
+    }
+    strcpy(copy, value);
+
+    // If queue is full, overwrite the oldest (drop the first uploaded) and free it
+    if (isStrQueueFull(q)) {
+        free(q->data[q->front]);
+        q->front = (q->front + 1) % MESSAGE_QUEUE_SIZE;
+        q->rear = (q->rear + 1) % MESSAGE_QUEUE_SIZE;
+        q->data[q->rear] = copy;
+        printf("Message queue full, overwrote oldest with: %s\n", value);
+        return;
+    }
+
+    if (isStrQueueEmpty(q)) {
+        q->front = 0;
+        q->rear = 0;
+        q->data[q->rear] = copy;
+        printf("Enqueued message: %s\n", value);
+        return;
+    }
+
+    q->rear = (q->rear + 1) % MESSAGE_QUEUE_SIZE;
+    q->data[q->rear] = copy;
+    printf("Enqueued message: %s\n", value);
+}
+
+// Peek at the first (oldest) string without removing it. Returns 0 on success and sets *out, -1 if empty.
+int peekFrontStr(StrQueue *q, char **out) {
+    if (isStrQueueEmpty(q)) return -1;
+    *out = q->data[q->front];
+    return 0;
+}
+
+// Peek at the last (newest) string without removing it. Returns 0 on success and sets *out, -1 if empty.
+int peekRearStr(StrQueue *q, char **out) {
+    if (isStrQueueEmpty(q)) return -1;
+    *out = q->data[q->rear];
+    return 0;
+}
+
+// Get number of elements currently in the string queue
+int strQueueSize(StrQueue *q) {
+    if (isStrQueueEmpty(q)) return 0;
+    if (q->rear >= q->front) return (q->rear - q->front + 1);
+    return (MESSAGE_QUEUE_SIZE - q->front + q->rear + 1);
+}
+
+StrQueue MESSAGES_Q;
 
 // timer0 for calculating in the background
 void TIMER0_INIT(void)
@@ -926,7 +1029,20 @@ void ui_show_display(void)
             break;
 
         case 6:
-            display_set("MESSAGES", MESSAGES_BUFFER[message_hover_index]);
+            // if the messages queue is not empty, show the first (oldest) message
+			{
+                char *msgptr = NULL;
+                if (!isStrQueueEmpty(&MESSAGES_Q))
+                {
+                    if (peekFrontStr(&MESSAGES_Q, &msgptr) == 0 && msgptr)
+                    {
+                        display_set("MESSAGES", msgptr);
+                    }
+                } else 
+                {
+                    display_set("MESSAGES", "No messages");
+				}
+            }
             break;
         case 7:
             if (active_config_index == -1)
@@ -1196,6 +1312,7 @@ ISR(TIMER2_OVF_vect)
 int main(void)
 {
     initQueue(&height_per_second);
+    initStrQueue(&MESSAGES_Q);
     LCD_1602A_init();
     HCSR04_init();
     KEYPAD_init();
@@ -1207,11 +1324,6 @@ int main(void)
 
     while (1)
     {
-        if (TIFR2 & (1<<TOV2)) {  // overflow flag set?
-            TIFR2 |= (1<<TOV2);   // clear it
-            PORTB ^= (1<<PB0);    // toggle LED
-        }
-
         while (active_menu_index == 4 && active_live_view_index != -1)
         {
             // in live view, continuously update values
@@ -1277,13 +1389,13 @@ int main(void)
         
 
         ui_show_display();
-        _delay_ms(20);
+        // _delay_ms(20);
 
         if (pressed_key == KEYPAD_NO_KEY) {
             while ((pressed_key = KEYPAD_read()) == KEYPAD_NO_KEY);
         }
         
-        _delay_ms(20);
+        // _delay_ms(20);
         if (KEYPAD_read() == pressed_key)
         {
             ui_process_key_command(pressed_key);
