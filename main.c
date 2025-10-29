@@ -16,6 +16,7 @@
 
 // interrupt definitions
 volatile uint8_t tick = 0;
+volatile char one_second_event = 0;
 
 // led port definition
 #define SYSTEM_ACTIVE_LED_PIN PC1
@@ -158,8 +159,6 @@ float current_leak_rate = 0.0;
 float current_soil_temperature = 0.0;
 
 
-int BUFFER_SIZE = 
-10;
 char SHOW_LOADING_WIDGET = 0;
 
 
@@ -225,13 +224,11 @@ void enqueue(Queue *q, int value) {
         q->front = 0;
         q->rear = 0;
         q->data[q->rear] = value;
-        printf("Enqueued: %d\n", value);
         return;
     }
 
     q->rear = (q->rear + 1) % BUFFER_SIZE;
     q->data[q->rear] = value;
-    printf("Enqueued: %d\n", value);
 }
 
 // Peek at the first (oldest) element without removing it.
@@ -323,7 +320,6 @@ void enqueueStr(StrQueue *q, const char *value) {
         q->front = (q->front + 1) % MESSAGE_QUEUE_SIZE;
         q->rear = (q->rear + 1) % MESSAGE_QUEUE_SIZE;
         q->data[q->rear] = copy;
-        printf("Message queue full, overwrote oldest with: %s\n", value);
         return;
     }
 
@@ -331,13 +327,11 @@ void enqueueStr(StrQueue *q, const char *value) {
         q->front = 0;
         q->rear = 0;
         q->data[q->rear] = copy;
-        printf("Enqueued message: %s\n", value);
         return;
     }
 
     q->rear = (q->rear + 1) % MESSAGE_QUEUE_SIZE;
     q->data[q->rear] = copy;
-    printf("Enqueued message: %s\n", value);
 }
 
 // Peek at the first (oldest) string without removing it. Returns 0 on success and sets *out, -1 if empty.
@@ -362,9 +356,10 @@ int strQueueSize(StrQueue *q) {
 }
 
 StrQueue MESSAGES_Q;
+char SYSTEM_SIGNAL = 0;
 
 // timer0 for calculating in the background
-void TIMER0_INIT(void)
+void TIMER2_INIT(void)
 {
 
     DDRC |= (1 << PC2);
@@ -512,6 +507,57 @@ void LCD_1602A_init(void)
     LCD_1602A_load_command(DISPLAY_ENTRY_MODE_SET);
     LCD_1602A_load_command(DISPLAY_CLEAR_SCREEN);
     _delay_ms(2);
+
+    /* create arrow glyphs once during init (used by display_set)
+       location 0..3 reserved for arrows */
+    uint8_t arrow_down[8] = {
+        0x00,
+        0x04,
+        0x04,
+        0x04,
+        0x1F,
+        0x0E,
+        0x04,
+        0x00
+    };
+
+    uint8_t arrow_up[8] = {
+        0x00,
+        0x04,
+        0x0E,
+        0x1F,
+        0x04,
+        0x04,
+        0x04,
+        0x00
+    };
+
+    uint8_t arrow_right[8] = {
+        0x00,
+        0x04,
+        0x06,
+        0x1F,
+        0x06,
+        0x04,
+        0x00,
+        0x00
+    };
+
+    uint8_t arrow_left[8] = {
+        0x00,
+        0x04,
+        0x0C,
+        0x1F,
+        0x0C,
+        0x04,
+        0x00,
+        0x00
+    };
+
+    LCD_1602A_create_char(0, arrow_down); // store at location 0
+    LCD_1602A_create_char(1, arrow_up);   // store at location 1
+    LCD_1602A_create_char(2, arrow_left);   // store at location 2
+    LCD_1602A_create_char(3, arrow_right);   // store at location 3
 }
 
 
@@ -652,10 +698,11 @@ void HCSR04_init(void)
 */
 void HCSR04_trigger(void)
 {
+    /* Proper trigger: low for a short time, then high for 10us pulse */
     HCSR04_TRIG_PORT &= ~(1 << HCSR04_TRIG_PIN);
-    _delay_ms(400);
+    _delay_us(2);
     HCSR04_TRIG_PORT |= (1 << HCSR04_TRIG_PIN);
-    _delay_ms(400);
+    _delay_us(10);
     HCSR04_TRIG_PORT &= ~(1 << HCSR04_TRIG_PIN);
 }
 
@@ -765,54 +812,7 @@ void display_set(const unsigned char *title, const unsigned char *data)
     for (; i < 12; ++i)
         line1[i] = ' ';
 
-    uint8_t arrow_down[8] = {
-        0x00,
-        0x04,
-        0x04,
-        0x04,
-        0x1F,
-        0x0E,
-        0x04,
-        0x00
-    };
-
-    uint8_t arrow_up[8] = {
-        0x00,
-        0x04,
-        0x0E,
-        0x1F,
-        0x04,
-        0x04,
-        0x04,
-        0x00
-    };
-
-    uint8_t arrow_right[8] = {
-        0x00,
-        0x04,
-        0x06,
-        0x1F,
-        0x06,
-        0x04,
-        0x00,
-        0x00
-    };
-
-    uint8_t arrow_left[8] = {
-        0x00,
-        0x04,
-        0x0C,
-        0x1F,
-        0x0C,
-        0x04,
-        0x00,
-        0x00
-    };
-
-    LCD_1602A_create_char(0, arrow_down); // store at location 0
-    LCD_1602A_create_char(1, arrow_up);   // store at location 1
-    LCD_1602A_create_char(2, arrow_left);   // store at location 2
-    LCD_1602A_create_char(3, arrow_right);   // store at location 3
+    /* custom characters created at init; just write the codes */
 
     // prepare line2: copy up to 16 chars from data, pad with spaces
     i = 0;
@@ -872,15 +872,9 @@ float get_tank_capacity()
     uint16_t water_depth = HCSR04_get_distance();
     water_depth *= 1.5; // convert to float
 
-    float water_height = TANK_HEIGHT_IN_CM - water_depth;
-
-    // // The following formula assumes the tank is a perfect cylinder: V = π * r^2 * h
-    float volume = (PI * ((float)TANK_RADIUS_IN_CM * (float)TANK_RADIUS_IN_CM) * water_height) / 1000.0; // convert cm^3 to liters
-    if (volume < 0.0) {
-        volume = 0.0;
-    }
-    return volume;
+    return get_tank_capacity_at_height(water_depth);
 }
+
 
 /* 
     get the refill rate based on tank capacity change over time
@@ -927,7 +921,7 @@ float get_leak_rate()
     if (capacity_at_1 < capacity_at_2) {
         return 0.0; // no leak detected
     }
-    float leak_rate_per_second = (capacity_at_1 - capacity_at_2) / 2.0;
+    float leak_rate_per_second = (capacity_at_1 - capacity_at_2) / queueSize(&height_per_second);
 
     return leak_rate_per_second * 60.0; // convert to liters per minute
 }
@@ -1299,14 +1293,15 @@ void ui_process_key_command (uint8_t key) {
 
 ISR(TIMER2_OVF_vect)
 {
+    /* Keep ISR short: only update tick and set a flag for main loop to do sensor work */
     tick++;
-   
-    if (tick >= 62) {
+
+    if (tick >= 248) {
         tick = 0;
-        enqueue(&height_per_second, HCSR04_get_distance());
-        PORTC ^= (1 << PC2); // toggle PC2 every second    
+        one_second_event = 1;
+
+        PORTC ^= (1 << PC2); // toggle PC2 every second
     }
-    
 }
 
 int main(void)
@@ -1318,87 +1313,142 @@ int main(void)
     KEYPAD_init();
 
     LED_SYSTEM_ACTIVE_INIT();
-    TIMER0_INIT();
+    TIMER2_INIT();
 
-    uint8_t pressed_key;
+    uint8_t pressed_key = KEYPAD_NO_KEY;
+	
+	int tank_height = HCSR04_get_distance();
+    enqueue(&height_per_second, tank_height);
+
+    /* main loop handles heavy work triggered by timer to avoid doing this in ISR */
 
     while (1)
     {
-        while (active_menu_index == 4 && active_live_view_index != -1)
-        {
-            // in live view, continuously update values
-            LED_system_active_on();
-            switch (live_view_hover_index)
-            {
-                case 0:
-                    if (!(SHOW_LOADING_WIDGET)) {
-                        display_set("CAPACITY", "Updating...");
-                        SHOW_LOADING_WIDGET = 1;
-                    }
-                    
-                    current_tank_capacity = get_tank_capacity();
-                    break;
-                case 1:
-                    if (!(SHOW_LOADING_WIDGET))
-                    {
-                        display_set("REFILL RATE", "Updating...");
-                        SHOW_LOADING_WIDGET = 1;
-                    }
-                    
-                    current_refill_rate = get_refill_rate();
-                    break;
-                case 2:
-                    if (!(SHOW_LOADING_WIDGET))
-                    {
-                        display_set("LEAK RATE", "Updating...");
-                        SHOW_LOADING_WIDGET = 1;
-                    }
-                    
-                    current_leak_rate = get_leak_rate();
-                    break;
+        ui_show_display();
 
-                case 3:
-                    if (!(SHOW_LOADING_WIDGET))
-                    {
-                        display_set("SOIL TEMP", "Updating...");
-                        SHOW_LOADING_WIDGET = 1;
-                    }
-                    
-                    current_soil_temperature = get_soil_temperature();
-                    break;
-            }
-            LED_system_active_off();
 
-            ui_show_display();
-            _delay_ms(1000);
+        if (SYSTEM_SIGNAL) {
+            char *msgptr = NULL;
+            SYSTEM_SIGNAL = 0;
+            peekFrontStr(&MESSAGES_Q, &msgptr);
+            display_set("ALERT", msgptr ? msgptr : "System alert");
+            _delay_ms(1000); // show alert briefly
+        }
 
-            if ((pressed_key = KEYPAD_read()) != KEYPAD_NO_KEY)
-            {
-                if (pressed_key == 1)
-                {
-                    // exit live view on key 1 press
-                    active_menu_index = -1;
-                    pressed_key = KEYPAD_NO_KEY;
-                    SHOW_LOADING_WIDGET = 0;
-                    break;
+        if (one_second_event) {
+            one_second_event = 0;
+
+            int tank_height = HCSR04_get_distance();
+            enqueue(&height_per_second, tank_height);
+
+            float capacity = get_tank_capacity_at_height(tank_height * 1.5);
+            float soil_temp = get_soil_temperature();
+
+            if (ENABLE_TRIGGER_VALUE) {
+                if (capacity <= MINIMUM_CAPACITY_BEFORE_REFILLING_TRIGGER) {
+                    char msg[64];
+                    snprintf(msg, sizeof(msg), "Refill triggered at %.1f Ltrs", capacity);
+                    enqueueStr(&MESSAGES_Q, msg);
+                    SYSTEM_SIGNAL = 1;
                 }
-                ui_process_key_command(pressed_key);
-                while (KEYPAD_read() != KEYPAD_NO_KEY); // wait until the key is released
+
+                if (soil_temp >= MAXIMUM_TEMPERATURE_BEFORE_PUMPING) {
+                    char msg[64];
+                    snprintf(msg, sizeof(msg), "Cooling triggered at %.2f degrees", soil_temp);
+                    enqueueStr(&MESSAGES_Q, msg);
+                    SYSTEM_SIGNAL = 1;
+                }
             }
         }
-        
 
-        ui_show_display();
+        while (active_menu_index == 4 && active_live_view_index != -1)
+        {
+            while ((pressed_key = KEYPAD_read()) == KEYPAD_NO_KEY)
+            {
+
+                switch (live_view_hover_index)
+                {
+                    case 0:
+                        if (!(SHOW_LOADING_WIDGET)) {
+                            display_set("CAPACITY", "Updating...");
+                            SHOW_LOADING_WIDGET = 1;
+                            current_tank_capacity = get_tank_capacity();
+                        }
+                        else {
+                            format_float(buffer, sizeof(buffer), current_tank_capacity, 1, "Ltrs");
+                            display_set("CAPACITY", buffer);
+                        }
+
+                        break;
+                    case 1:
+                        if (!(SHOW_LOADING_WIDGET))
+                        {
+                            display_set("REFILL RATE", "Updating...");
+                            SHOW_LOADING_WIDGET = 1;
+                            current_refill_rate = get_refill_rate();
+                        } else {
+                            format_float(buffer, sizeof(buffer), current_refill_rate, 1, "Ltrs per min");
+                            display_set("REFILL RATE", buffer);
+                        }
+                        break;
+                    case 2:
+                        if (!(SHOW_LOADING_WIDGET))
+                        {
+                            display_set("LEAK RATE", "Updating...");
+                            SHOW_LOADING_WIDGET = 1;
+                            current_leak_rate = get_leak_rate();
+                        } else {
+                            format_float(buffer, sizeof(buffer), current_leak_rate, 1, "Ltrs per min");
+                            display_set("LEAK RATE", buffer);
+                        }
+                        
+                        break;
+
+                    case 3:
+                        if (!(SHOW_LOADING_WIDGET))
+                        {
+                            display_set("SOIL TEMP", "Updating...");
+                            SHOW_LOADING_WIDGET = 1;
+                            current_soil_temperature = get_soil_temperature();
+                        } else {
+                            format_float(buffer, sizeof(buffer), current_soil_temperature, 1, "degrees");
+                            display_set("SOIL TEMP", buffer);
+                        }
+                        
+                        break;
+                }
+                
+            }
+
+            SHOW_LOADING_WIDGET = 0;
+
+            if (pressed_key == 1)
+            {
+                // exit live view on key 1 press
+                active_menu_index = -1;
+                pressed_key = KEYPAD_NO_KEY;
+                break;
+            } else {
+                ui_process_key_command(pressed_key);
+            }
+
+            while (KEYPAD_read() != KEYPAD_NO_KEY);
+        }
+
+
         // _delay_ms(20);
 
         if (pressed_key == KEYPAD_NO_KEY) {
+            LED_system_active_on();
             while ((pressed_key = KEYPAD_read()) == KEYPAD_NO_KEY);
+            LED_system_active_off();
         }
         
         // _delay_ms(20);
         if (KEYPAD_read() == pressed_key)
         {
             ui_process_key_command(pressed_key);
+
             while (KEYPAD_read() != KEYPAD_NO_KEY); // wait until the key is released
         }
 
