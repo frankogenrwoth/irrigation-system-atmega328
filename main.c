@@ -128,6 +128,13 @@ float SPRAY_THRESHOLD = 24.0;
 char ENABLE_TRIGGER_VALUE = 1;
 char ENABLE_ALERT_VALUE = 1;
 
+#define ALERT_COOLDOWN_SECONDS 3
+static uint32_t ten_seconds_count = 0;
+
+static uint32_t last_refill_alert_time = 0;
+static uint32_t last_cooling_alert_time = 0;
+static uint32_t last_pumping_alert_time = 0;
+static uint32_t last_spraying_alert_time = 0;
 
 // ENVIRONMENT DEFINITIONS
 #define TANK_HEIGHT_IN_CM 15.6
@@ -533,10 +540,22 @@ void LCD_1602A_init(void)
         0x00
     };
 
+    uint8_t alert_bell[8] = {
+        0x00,
+        0x04,
+        0x0E,
+        0x0E,
+        0x1F,
+        0x04,
+        0x00,
+        0x00
+    };
+
     LCD_1602A_create_char(0, arrow_down); // store at location 0
     LCD_1602A_create_char(1, arrow_up);   // store at location 1
     LCD_1602A_create_char(2, arrow_left);   // store at location 2
     LCD_1602A_create_char(3, arrow_right);   // store at location 3
+    LCD_1602A_create_char(4, alert_bell);   // store at location 4
 }
 
 
@@ -812,9 +831,10 @@ void display_set(const unsigned char *title, const unsigned char *data)
     }
 
     if (title != NULL && strcmp((const char *)original_title, "ALERT") == 0) {
-        for (i = 12; i < 16; ++i)
-        LCD_1602A_load_data(' ');
-
+        for (i = 12; i < 15; ++i) {
+            LCD_1602A_load_data(' ');
+        }
+        LCD_1602A_load_data(4); // Load custom character for alert bell
     }
     else {
         LCD_1602A_load_data(2);
@@ -1306,19 +1326,29 @@ int main(void)
 
     while (1)
     {
-        ui_show_display();
+        
 
 
         if (SYSTEM_SIGNAL) {
             char *msgptr = NULL;
             SYSTEM_SIGNAL = 0;
-            peekFrontStr(&MESSAGES_Q, &msgptr);
-            display_set("ALERT", msgptr ? msgptr : "System alert");
-            _delay_ms(1000); // show alert briefly
+            int count = 0;
+            while (count < 5 && !isStrQueueEmpty(&MESSAGES_Q)) {
+                peekFrontStr(&MESSAGES_Q, &msgptr);
+                display_set("ALERT", msgptr ? msgptr : "System alert");
+                _delay_ms(150);
+                display_set("ALERT", " ");
+                _delay_ms(50);
+                count++;
+            }
         }
+        
+        ui_show_display();
 
         if (one_second_event) {
             one_second_event = 0;
+
+            ten_seconds_count++;
 
             int tank_height = HCSR04_get_distance();
             enqueue(&height_per_second, tank_height);
@@ -1328,32 +1358,46 @@ int main(void)
 
             if (ENABLE_TRIGGER_VALUE) {
                 if (capacity <= MINIMUM_CAPACITY_BEFORE_REFILLING_TRIGGER) {
-                    char msg[64];
-                    snprintf(msg, sizeof(msg), "Refill triggered at %.1f Ltrs", capacity);
-                    enqueueStr(&MESSAGES_Q, msg);
-                    SYSTEM_SIGNAL = 1;
+                    if ((ten_seconds_count - last_refill_alert_time) >= ALERT_COOLDOWN_SECONDS) {
+                        char msg[64];
+                        snprintf(msg, sizeof(msg), "Refill triggered at %.1f Ltrs", capacity);
+                        enqueueStr(&MESSAGES_Q, msg);
+                        SYSTEM_SIGNAL = 1;
+                        last_refill_alert_time = ten_seconds_count;
+                    }
                 }
 
                 if (soil_temp >= MAXIMUM_TEMPERATURE_BEFORE_PUMPING) {
-                    char msg[64];
-                    snprintf(msg, sizeof(msg), "Cooling triggered at %.2f degrees", soil_temp);
-                    enqueueStr(&MESSAGES_Q, msg);
-                    SYSTEM_SIGNAL = 1;
+                    if ((ten_seconds_count - last_cooling_alert_time) >= ALERT_COOLDOWN_SECONDS) {
+                        char msg[64];
+                        snprintf(msg, sizeof(msg), "Cooling triggered at %.2f degrees", soil_temp);
+                        enqueueStr(&MESSAGES_Q, msg);
+                        SYSTEM_SIGNAL = 1;
+                        last_cooling_alert_time = ten_seconds_count;
+                    }
                 }
 
                 if (capacity >= PUMP_THRESHOLD) {
-                    char msg[64];
-                    snprintf(msg, sizeof(msg), "Pumping stopped at %.1f Ltrs", capacity);
-                    enqueueStr(&MESSAGES_Q, msg);
-                    SYSTEM_SIGNAL = 1;
+                    if ((ten_seconds_count - last_pumping_alert_time) >= ALERT_COOLDOWN_SECONDS) {
+                        char msg[64];
+                        snprintf(msg, sizeof(msg), "Pumping stopped at %.1f Ltrs", capacity);
+                        enqueueStr(&MESSAGES_Q, msg);
+                        SYSTEM_SIGNAL = 1;
+                        last_pumping_alert_time = ten_seconds_count;
+                    }
                 }
 
                 if (soil_temp <= SPRAY_THRESHOLD) {
-                    char msg[64];
-                    snprintf(msg, sizeof(msg), "Spraying stopped at %.2f degrees", soil_temp);
-                    enqueueStr(&MESSAGES_Q, msg);
-                    SYSTEM_SIGNAL = 1;
+                    if ((ten_seconds_count - last_spraying_alert_time) >= ALERT_COOLDOWN_SECONDS) {
+                        char msg[64];
+                        snprintf(msg, sizeof(msg), "Spraying stopped at %.2f degrees", soil_temp);
+                        enqueueStr(&MESSAGES_Q, msg);
+                        SYSTEM_SIGNAL = 1;
+                        last_spraying_alert_time = ten_seconds_count;
+                    }
                 }
+
+                
             }
         }
 
