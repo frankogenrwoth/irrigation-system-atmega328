@@ -128,7 +128,7 @@ float SPRAY_THRESHOLD = 24.0;
 char ENABLE_TRIGGER_VALUE = 1;
 char ENABLE_ALERT_VALUE = 1;
 
-#define ALERT_COOLDOWN_SECONDS 3
+#define ALERT_COOLDOWN_SECONDS 4
 static uint32_t ten_seconds_count = 0;
 
 static uint32_t last_refill_alert_time = 0;
@@ -1326,9 +1326,6 @@ int main(void)
 
     while (1)
     {
-        
-
-
         if (SYSTEM_SIGNAL) {
             char *msgptr = NULL;
             SYSTEM_SIGNAL = 0;
