@@ -1,9 +1,3 @@
-/*
- * embedded.c
- * Created: 20/10/2025
- * Author : ogenr
- */
-
 #define F_CPU 16000000L
 
 #include <avr/interrupt.h>
@@ -361,10 +355,6 @@ char SYSTEM_SIGNAL = 0;
 // timer0 for calculating in the background
 void TIMER2_INIT(void)
 {
-
-    DDRC |= (1 << PC2);
-    PORTC &= ~(1 << PC2);
-
     TCCR2A = 0x00;                                    // normal mode
     TCCR2B = (1 << CS22) | (1 << CS21) | (1 << CS20); // prescaler = 1024
     TIMSK2 = (1 << TOIE2);                            // enable overflow interrupt
@@ -1299,8 +1289,6 @@ ISR(TIMER2_OVF_vect)
     if (tick >= 248) {
         tick = 0;
         one_second_event = 1;
-
-        PORTC ^= (1 << PC2); // toggle PC2 every second
     }
 }
 
@@ -1311,7 +1299,6 @@ int main(void)
     LCD_1602A_init();
     HCSR04_init();
     KEYPAD_init();
-
     LED_SYSTEM_ACTIVE_INIT();
     TIMER2_INIT();
 
@@ -1319,8 +1306,6 @@ int main(void)
 	
 	int tank_height = HCSR04_get_distance();
     enqueue(&height_per_second, tank_height);
-
-    /* main loop handles heavy work triggered by timer to avoid doing this in ISR */
 
     while (1)
     {
