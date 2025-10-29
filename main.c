@@ -21,25 +21,19 @@ volatile char one_second_event = 0;
 // lcd -1602A pin definitions
 #define LCD_1602A_RS PB0
 #define LCD_1602A_EN PB1
-
 #define LCD_1602A_D4 PD4
 #define LCD_1602A_D5 PD5
 #define LCD_1602A_D6 PD6
 #define LCD_1602A_D7 PD7
-
 #define LCD_1602A_DATA_PORT PORTD
 #define LCD_1602A_DATA_DDR DDRD
-
 #define LCD_1602A_CTRL_PORT PORTB
 #define LCD_1602A_CTRL_DDR DDRB
 
-
-// sensor -DS18B20 pin definitions
 #define DS18B20_DQ PC0
 #define DS18B20_PIN PINC
 #define DS18B20_PORT PORTC
 #define DS18B20_DDR DDRC
-
 #define DS18B20_OUTPUT() (DS18B20_DDR |= (1 << DS18B20_DQ))
 #define DS18B20_INPUT() (DS18B20_DDR &= ~(1 << DS18B20_DQ))
 #define DS18B20_LOW() (DS18B20_PORT &= ~(1 << DS18B20_DQ))
@@ -48,7 +42,6 @@ volatile char one_second_event = 0;
 // sensor -SONAR HC-SR04 pin definitions
 #define HCSR04_TRIG_PIN PD2
 #define HCSR04_ECHO_PIN PD3
-
 #define HCSR04_TRIG_DDR DDRD
 #define HCSR04_TRIG_PORT PORTD
 #define HCSR04_ECHO_DDR DDRD
@@ -60,7 +53,6 @@ volatile char one_second_event = 0;
 #define KEYPAD_KEY_2 PB3
 #define KEYPAD_KEY_3 PB4
 #define KEYPAD_KEY_4 PB5
-
 #define KEYPAD_NO_KEY 5
 #define KEYPAD_PORT PORTB
 #define KEYPAD_PIN PINB
