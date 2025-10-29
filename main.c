@@ -70,10 +70,9 @@ volatile char one_second_event = 0;
 #define DISPLAY_WAIT_POWER_UP 0x03
 #define DISPLAY_4_BIT_MODE 0x02
 
-// display user interface functions
 char buffer[16];
 
-#define MSG_BUFFER_SIZE 4 // starting from 0
+#define MSG_BUFFER_SIZE 4
 
 char *MENU_BUFFER[] = {
     "Tank capacity",
@@ -85,7 +84,6 @@ char *MENU_BUFFER[] = {
     "Messages",
     "Config",
 };
-
 
 char *LIVE_VIEW_BUFFER[] = {
     "Capacity",
@@ -106,7 +104,6 @@ char *CONFIG_BUFFER[] = {
     "Enable triggers",
     "Enable alerts"
 };
-
 
 int active_menu_index = -1;
 int active_trigger_index = -1;
@@ -781,6 +778,7 @@ static void format_float(char *dest, size_t dest_size, float value, uint8_t prec
 void display_set(const unsigned char *title, const unsigned char *data)
 {
     // LCD_1602A_load_command(DISPLAY_CLEAR_SCREEN);
+    char *original_title = (char *)title;
     _delay_ms(2);
 
     unsigned char line1[12];
@@ -813,10 +811,17 @@ void display_set(const unsigned char *title, const unsigned char *data)
         LCD_1602A_load_data(line1[i]);
     }
 
-    LCD_1602A_load_data(2);
-    LCD_1602A_load_data(0);
-    LCD_1602A_load_data(1);
-    LCD_1602A_load_data(3);
+    if (title != NULL && strcmp((const char *)original_title, "ALERT") == 0) {
+        for (i = 12; i < 16; ++i)
+        LCD_1602A_load_data(' ');
+
+    }
+    else {
+        LCD_1602A_load_data(2);
+        LCD_1602A_load_data(0);
+        LCD_1602A_load_data(1);
+        LCD_1602A_load_data(3);
+    }
 
     // reset cursor to second line and write 16 chars
     LCD_1602A_load_command(DISPLAY_SET_CURSOR_LINE_2);
@@ -1332,6 +1337,20 @@ int main(void)
                 if (soil_temp >= MAXIMUM_TEMPERATURE_BEFORE_PUMPING) {
                     char msg[64];
                     snprintf(msg, sizeof(msg), "Cooling triggered at %.2f degrees", soil_temp);
+                    enqueueStr(&MESSAGES_Q, msg);
+                    SYSTEM_SIGNAL = 1;
+                }
+
+                if (capacity >= PUMP_THRESHOLD) {
+                    char msg[64];
+                    snprintf(msg, sizeof(msg), "Pumping stopped at %.1f Ltrs", capacity);
+                    enqueueStr(&MESSAGES_Q, msg);
+                    SYSTEM_SIGNAL = 1;
+                }
+
+                if (soil_temp <= SPRAY_THRESHOLD) {
+                    char msg[64];
+                    snprintf(msg, sizeof(msg), "Spraying stopped at %.2f degrees", soil_temp);
                     enqueueStr(&MESSAGES_Q, msg);
                     SYSTEM_SIGNAL = 1;
                 }
