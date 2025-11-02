@@ -4,12 +4,26 @@ l = text.split('\n')
 
 non_comment_lines = []
 
+pure_code = 0
+no_count = False
 for line in l:
-    if not line.strip().startswith("//") and not line.strip().startswith("/*"):
-        non_comment_lines.append(line)
+    if "//" in line:
+        continue
 
-print("\n")
+    if no_count:
+        if "*/" in line:
+            no_count = False
+        continue
+    else:
+        if line.strip().startswith("/*"):
+            no_count = True
+            if line.strip().endswith("*/"):
+                no_count = False
+            continue
+
+        pure_code += 1
+    
+
 print("LOC: ", len(l))
-print("CLOC no blank: ", len([i for i in filter(lambda x: x != "", non_comment_lines)]))
-print("NLOC: ", len([i for i in filter(lambda x: x!='', non_comment_lines)]))
-print("\n")
+print("CLOC no blank: ", len([i for i in filter(lambda x: x != "", l)]))
+print("C CODE: ", pure_code)
