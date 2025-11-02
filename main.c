@@ -10,7 +10,7 @@
 
 // interrupt definitions
 volatile uint8_t tick = 0;
-volatile char one_second_event = 0;
+volatile char system_events_trigger = 0;
 
 // led port definition
 #define SYSTEM_ACTIVE_LED_PIN PC1
@@ -34,6 +34,7 @@ volatile char one_second_event = 0;
 #define DS18B20_PIN PINC
 #define DS18B20_PORT PORTC
 #define DS18B20_DDR DDRC
+
 #define DS18B20_OUTPUT() (DS18B20_DDR |= (1 << DS18B20_DQ))
 #define DS18B20_INPUT() (DS18B20_DDR &= ~(1 << DS18B20_DQ))
 #define DS18B20_LOW() (DS18B20_PORT &= ~(1 << DS18B20_DQ))
@@ -128,7 +129,7 @@ float SPRAY_THRESHOLD = 24.0;
 char ENABLE_TRIGGER_VALUE = 1;
 char ENABLE_ALERT_VALUE = 1;
 
-#define ALERT_COOLDOWN_SECONDS 4
+#define ALERT_COOLDOWN_SECONDS 2
 static uint32_t ten_seconds_count = 0;
 
 static uint32_t last_refill_alert_time = 0;
@@ -161,23 +162,19 @@ typedef struct {
     int rear;
 } Queue;
 
-// Initialize the queue
 void initQueue(Queue *q) {
     q->front = -1;
     q->rear = -1;
 }
 
-// Check if empty
 int isEmpty(Queue *q) {
     return (q->front == -1);
 }
 
-// Check if full
 int isFull(Queue *q) {
     return ((q->rear + 1) % BUFFER_SIZE == q->front);
 }
 
-// Remove (dequeue)
 int dequeue(Queue *q) {
     if (isEmpty(q)) {
         printf("Queue is empty!\n");
@@ -196,17 +193,11 @@ int dequeue(Queue *q) {
     return value;
 }
 
-
-// Add (enqueue)
 void enqueue(Queue *q, int value) {
-    // If queue is full, overwrite the oldest (drop the first uploaded)
     if (isFull(q)) {
-        // advance front and rear to make room for the new value (overwrite oldest)
         q->front = (q->front + 1) % BUFFER_SIZE;
         q->rear = (q->rear + 1) % BUFFER_SIZE;
         q->data[q->rear] = value;
-        // optional debug print
-        printf("Queue full, overwrote oldest with: %d\n", value);
         return;
     }
 
@@ -221,23 +212,18 @@ void enqueue(Queue *q, int value) {
     q->data[q->rear] = value;
 }
 
-// Peek at the first (oldest) element without removing it.
-// Returns 0 on success and writes value to *out, -1 if empty.
 int peekFront(Queue *q, int *out) {
     if (isEmpty(q)) return -1;
     *out = q->data[q->front];
     return 0;
 }
 
-// Peek at the last (newest) element without removing it.
-// Returns 0 on success and writes value to *out, -1 if empty.
 int peekRear(Queue *q, int *out) {
     if (isEmpty(q)) return -1;
     *out = q->data[q->rear];
     return 0;
 }
 
-// Get number of elements currently in the queue
 int queueSize(Queue *q) {
     if (isEmpty(q)) return 0;
     if (q->rear >= q->front) return (q->rear - q->front + 1);
@@ -246,7 +232,7 @@ int queueSize(Queue *q) {
 
 
 Queue height_per_second;
-// String message queue (separate from integer queue)
+
 #define MESSAGE_QUEUE_SIZE 10
 
 typedef struct {
@@ -255,27 +241,22 @@ typedef struct {
     int rear;
 } StrQueue;
 
-// Initialize the string queue
 void initStrQueue(StrQueue *q) {
     q->front = -1;
     q->rear = -1;
     for (int i = 0; i < MESSAGE_QUEUE_SIZE; ++i) q->data[i] = NULL;
 }
 
-// Check if string queue is empty
 int isStrQueueEmpty(StrQueue *q) {
     return (q->front == -1);
 }
 
-// Check if string queue is full
 int isStrQueueFull(StrQueue *q) {
     return ((q->rear + 1) % MESSAGE_QUEUE_SIZE == q->front);
 }
 
-// Remove (dequeue) from string queue. Returns pointer to malloc'd string (caller must free), or NULL if empty.
 char *dequeueStr(StrQueue *q) {
     if (isStrQueueEmpty(q)) {
-        printf("String queue is empty!\n");
         return NULL;
     }
 
@@ -283,7 +264,6 @@ char *dequeueStr(StrQueue *q) {
     q->data[q->front] = NULL;
 
     if (q->front == q->rear) {
-        // only one element left
         q->front = q->rear = -1;
     } else {
         q->front = (q->front + 1) % MESSAGE_QUEUE_SIZE;
@@ -292,19 +272,16 @@ char *dequeueStr(StrQueue *q) {
     return value;
 }
 
-// Add (enqueue) a copy of the string to the queue. On overwrite, the oldest string is freed.
 void enqueueStr(StrQueue *q, const char *value) {
     if (!value) return; // ignore NULL
 
     size_t len = strlen(value) + 1;
     char *copy = (char *)malloc(len);
     if (!copy) {
-        printf("enqueueStr: malloc failed\n");
         return;
     }
     strcpy(copy, value);
 
-    // If queue is full, overwrite the oldest (drop the first uploaded) and free it
     if (isStrQueueFull(q)) {
         free(q->data[q->front]);
         q->front = (q->front + 1) % MESSAGE_QUEUE_SIZE;
@@ -324,21 +301,18 @@ void enqueueStr(StrQueue *q, const char *value) {
     q->data[q->rear] = copy;
 }
 
-// Peek at the first (oldest) string without removing it. Returns 0 on success and sets *out, -1 if empty.
 int peekFrontStr(StrQueue *q, char **out) {
     if (isStrQueueEmpty(q)) return -1;
     *out = q->data[q->front];
     return 0;
 }
 
-// Peek at the last (newest) string without removing it. Returns 0 on success and sets *out, -1 if empty.
 int peekRearStr(StrQueue *q, char **out) {
     if (isStrQueueEmpty(q)) return -1;
     *out = q->data[q->rear];
     return 0;
 }
 
-// Get number of elements currently in the string queue
 int strQueueSize(StrQueue *q) {
     if (isStrQueueEmpty(q)) return 0;
     if (q->rear >= q->front) return (q->rear - q->front + 1);
@@ -346,9 +320,7 @@ int strQueueSize(StrQueue *q) {
 }
 
 StrQueue MESSAGES_Q;
-char SYSTEM_SIGNAL = 0;
 
-// timer0 for calculating in the background
 void TIMER2_INIT(void)
 {
     TCCR2A = 0x00;                                    // normal mode
@@ -426,6 +398,8 @@ void LCD_1602A_send_nibble(uint8_t nibble)
 void LCD_1602A_load_command(uint8_t cmd)
 {
     LCD_1602A_CTRL_PORT &= ~(1 << LCD_1602A_RS); // Command mode
+
+
     LCD_1602A_send_nibble(cmd >> 4);
     LCD_1602A_send_nibble(cmd & 0x0F);
 }
@@ -540,6 +514,7 @@ void LCD_1602A_init(void)
         0x00
     };
 
+
     uint8_t alert_bell[8] = {
         0x00,
         0x04,
@@ -573,7 +548,7 @@ uint8_t DS18B20_reset(void)
     DS18B20_INPUT();
     _delay_us(60);
 
-    uint8_t presence = !(DS18B20_PIN & (1 << DS18B20_DQ));
+    uint8_t presence = !(DS18B20_PIN & (1 << DS18B20_DQ)); // presence pulse is active low
     _delay_us(420);
     return presence;
 }
@@ -713,7 +688,7 @@ uint16_t HCSR04_read(void)
 {
     uint32_t count = 0;
 
-    while (!(HCSR04_ECHO_DEF_PIN & (1 << HCSR04_ECHO_PIN)));
+    while (!(HCSR04_ECHO_DEF_PIN & (1 << HCSR04_ECHO_PIN))); 
 
     while (HCSR04_ECHO_DEF_PIN & (1 << HCSR04_ECHO_PIN))
     {
@@ -1032,12 +1007,12 @@ void ui_show_display(void)
         case 6:
             // if the messages queue is not empty, show the first (oldest) message
 			{
-                char *msgptr = NULL;
+                char *messagePointer = NULL;
                 if (!isStrQueueEmpty(&MESSAGES_Q))
                 {
-                    if (peekFrontStr(&MESSAGES_Q, &msgptr) == 0 && msgptr)
+                    if (peekFrontStr(&MESSAGES_Q, &messagePointer) == 0 && messagePointer)
                     {
-                        display_set("MESSAGES", msgptr);
+                        display_set("MESSAGES", messagePointer);
                     }
                 } else 
                 {
@@ -1300,12 +1275,13 @@ void ui_process_key_command (uint8_t key) {
 
 ISR(TIMER2_OVF_vect)
 {
-    /* Keep ISR short: only update tick and set a flag for main loop to do sensor work */
     tick++;
 
-    if (tick >= 248) {
+    // 1 second is reached after 61.2745098 ticks at 1024 prescaler with 16MHz clock
+    // 10 seconds is reached at approximately 612.745098 ticks
+    if (tick >= 612) {
         tick = 0;
-        one_second_event = 1;
+        system_events_trigger = 1;
     }
 }
 
@@ -1313,6 +1289,7 @@ int main(void)
 {
     initQueue(&height_per_second);
     initStrQueue(&MESSAGES_Q);
+
     LCD_1602A_init();
     HCSR04_init();
     KEYPAD_init();
@@ -1320,36 +1297,39 @@ int main(void)
     TIMER2_INIT();
 
     uint8_t pressed_key = KEYPAD_NO_KEY;
-	
-	int tank_height = HCSR04_get_distance();
+    char SYSTEM_SIGNAL = 0;
+
+    int tank_height = HCSR04_get_distance();
     enqueue(&height_per_second, tank_height);
 
     while (1)
     {
-        if (SYSTEM_SIGNAL) {
-            char *msgptr = NULL;
+        // display alert messages to the user if system signal is active and alerts are enabled
+        if (SYSTEM_SIGNAL && ENABLE_ALERT_VALUE) {
+            char *messagePointer = NULL;
             SYSTEM_SIGNAL = 0;
             int count = 0;
+
             while (count < 5 && !isStrQueueEmpty(&MESSAGES_Q)) {
-                peekFrontStr(&MESSAGES_Q, &msgptr);
-                display_set("ALERT", msgptr ? msgptr : "System alert");
+                peekFrontStr(&MESSAGES_Q, &messagePointer);
+                display_set("ALERT", messagePointer ? messagePointer : "System alert");
                 _delay_ms(150);
                 display_set("ALERT", " ");
                 _delay_ms(50);
                 count++;
             }
+        } else if (SYSTEM_SIGNAL && !ENABLE_ALERT_VALUE) {
+            SYSTEM_SIGNAL = 0;
         }
         
         ui_show_display();
 
-        if (one_second_event) {
-            one_second_event = 0;
-
+        if (system_events_trigger) {
+            system_events_trigger = 0;
             ten_seconds_count++;
 
             int tank_height = HCSR04_get_distance();
             enqueue(&height_per_second, tank_height);
-
             float capacity = get_tank_capacity_at_height(tank_height * 1.5);
             float soil_temp = get_soil_temperature();
 
@@ -1402,7 +1382,7 @@ int main(void)
         {
             while ((pressed_key = KEYPAD_read()) == KEYPAD_NO_KEY)
             {
-
+                LED_system_active_on();
                 switch (live_view_hover_index)
                 {
                     case 0:
@@ -1454,7 +1434,7 @@ int main(void)
                         
                         break;
                 }
-                
+                LED_system_active_off();
             }
 
             SHOW_LOADING_WIDGET = 0;
