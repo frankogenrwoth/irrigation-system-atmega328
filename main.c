@@ -73,8 +73,6 @@ volatile char system_events_trigger = 0;
 
 char buffer[16];
 
-#define MSG_BUFFER_SIZE 4
-
 char *MENU_BUFFER[] = {
     "Tank capacity",
     "Refilling rate",
@@ -129,7 +127,7 @@ float SPRAY_THRESHOLD = 24.0;
 char ENABLE_TRIGGER_VALUE = 1;
 char ENABLE_ALERT_VALUE = 1;
 
-#define ALERT_COOLDOWN_SECONDS 2
+#define ALERT_COOLDOWN_SECONDS 3
 static uint32_t ten_seconds_count = 0;
 
 static uint32_t last_refill_alert_time = 0;
@@ -148,10 +146,6 @@ float current_tank_capacity = 0.0;
 float current_refill_rate = 0.0;
 float current_leak_rate = 0.0;
 float current_soil_temperature = 0.0;
-
-
-char SHOW_LOADING_WIDGET = 0;
-
 
 // queue for keeping 10 distances implemented in the padded second heights
 #define BUFFER_SIZE 10 // max queue size
@@ -255,21 +249,12 @@ int isStrQueueFull(StrQueue *q) {
     return ((q->rear + 1) % MESSAGE_QUEUE_SIZE == q->front);
 }
 
-char *dequeueStr(StrQueue *q) {
-    if (isStrQueueEmpty(q)) {
-        return NULL;
-    }
+char *peekAtIndex(StrQueue *q, int index) {
+    if (isStrQueueEmpty(q)) return NULL;
+    if (index < 0 || index >= strQueueSize(q)) return NULL;
 
-    char *value = q->data[q->front];
-    q->data[q->front] = NULL;
-
-    if (q->front == q->rear) {
-        q->front = q->rear = -1;
-    } else {
-        q->front = (q->front + 1) % MESSAGE_QUEUE_SIZE;
-    }
-
-    return value;
+    int actualIndex = (q->front + index) % MESSAGE_QUEUE_SIZE;
+    return q->data[actualIndex];
 }
 
 void enqueueStr(StrQueue *q, const char *value) {
@@ -913,12 +898,7 @@ float get_soil_temperature()
     return DS18B20_read_temperature();
 }
 
-// user interface functions
-/* 
-    update the display based on the current active menu and hover indices
-    params: void
-    returns: void
-*/
+
 void ui_show_display(void)
 {
     if (active_menu_index == -1)
@@ -1007,12 +987,15 @@ void ui_show_display(void)
         case 6:
             // if the messages queue is not empty, show the first (oldest) message
 			{
-                char *messagePointer = NULL;
+                char *messagePointer    = NULL;
                 if (!isStrQueueEmpty(&MESSAGES_Q))
                 {
-                    if (peekFrontStr(&MESSAGES_Q, &messagePointer) == 0 && messagePointer)
+                    messagePointer = peekAtIndex(&MESSAGES_Q, message_hover_index);
+                    if (messagePointer)
                     {
                         display_set("MESSAGES", messagePointer);
+                    } else {
+                        display_set("MESSAGES", "No message");
                     }
                 } else 
                 {
@@ -1063,12 +1046,6 @@ void ui_show_display(void)
     }
 }
 
-// user process command
-/* 
-    process a key command from the keypad and update the UI state
-    params: uint8_t key - the key number (1-4)
-    returns: void
-*/
 void ui_process_key_command (uint8_t key) {
     if (key == 1)
     {
@@ -1105,13 +1082,11 @@ void ui_process_key_command (uint8_t key) {
         }
         else if (active_menu_index == 4)
         {
-            // user is in the live view menu
             if (live_view_hover_index < (sizeof(LIVE_VIEW_BUFFER)/sizeof(LIVE_VIEW_BUFFER[0]) - 1))
                 live_view_hover_index++; // navigate downwards on the live view menu
         }
         else if (active_menu_index == 5) 
         {
-            // user is in the triggers menu
             if (active_trigger_index == -1)
             {
                 if (trigger_hover_index < (sizeof(TRIGGERS_BUFFER)/sizeof(TRIGGERS_BUFFER[0]) - 1))
@@ -1119,11 +1094,9 @@ void ui_process_key_command (uint8_t key) {
             } else {
                 switch (active_trigger_index) {
                     case 0:
-                        // adjust MINIMUM_CAPACITY_BEFORE_REFILLING_TRIGGER - decrease
                         MINIMUM_CAPACITY_BEFORE_REFILLING_TRIGGER -= STEP_SIZE_FOR_INCREMENTS;
                         break;
                     case 1:
-                        // adjust MAXIMUM_TEMPERATURE_BEFORE_PUMPING - decrease
                         MAXIMUM_TEMPERATURE_BEFORE_PUMPING -= STEP_SIZE_FOR_INCREMENTS;
                         break;
                     default:
@@ -1132,7 +1105,7 @@ void ui_process_key_command (uint8_t key) {
             }
         }
         else if (active_menu_index == 6) {
-            if (message_hover_index < MSG_BUFFER_SIZE - 1)
+            if (message_hover_index < MESSAGE_QUEUE_SIZE - 1)
                 message_hover_index++;
         }
         else if (active_menu_index == 7)
@@ -1145,23 +1118,18 @@ void ui_process_key_command (uint8_t key) {
                 switch (active_config_index)
                 {
                 case 0:
-                    // adjust STEP_SIZE_FOR_INCREMENTS - decrease
                     STEP_SIZE_FOR_INCREMENTS -= STEP_INCREMENT;
                     break;
                 case 1:
-                    // adjust PUMP_THRESHOLD - decrease
                     PUMP_THRESHOLD -= STEP_SIZE_FOR_INCREMENTS;
                     break;
                 case 2:
-                    // adjust SPRAY_THRESHOLD - decrease
                     SPRAY_THRESHOLD -= STEP_SIZE_FOR_INCREMENTS;
                     break;
                 case 3:
-                    // adjust ENABLE_TRIGGER_VALUE - toggle
                     ENABLE_TRIGGER_VALUE = 0;
                     break;
                 case 4:
-                    // adjust ENABLE_ALERT_VALUE - toggle
                     ENABLE_ALERT_VALUE = 0;
                     break;
                 default:
@@ -1179,7 +1147,6 @@ void ui_process_key_command (uint8_t key) {
         }
         else if (active_menu_index == 4)
         {
-            // user is in the live view menu
             if (live_view_hover_index > 0)
                 live_view_hover_index--;
         }
@@ -1192,11 +1159,9 @@ void ui_process_key_command (uint8_t key) {
             } else {
                 switch (active_trigger_index) {
                     case 0:
-                        // adjust MINIMUM_CAPACITY_BEFORE_REFILLING_TRIGGER - decrease
                         MINIMUM_CAPACITY_BEFORE_REFILLING_TRIGGER += STEP_SIZE_FOR_INCREMENTS;
                         break;
                     case 1:
-                        // adjust MAXIMUM_TEMPERATURE_BEFORE_PUMPING - decrease
                         MAXIMUM_TEMPERATURE_BEFORE_PUMPING += STEP_SIZE_FOR_INCREMENTS;
                         break;
                     default:
@@ -1218,23 +1183,18 @@ void ui_process_key_command (uint8_t key) {
             switch (active_config_index)
                 {
                 case 0:
-                    // adjust STEP_SIZE_FOR_INCREMENTS - decrease
                     STEP_SIZE_FOR_INCREMENTS += STEP_INCREMENT;
                     break;
                 case 1:
-                    // adjust PUMP_THRESHOLD - decrease
                     PUMP_THRESHOLD += STEP_SIZE_FOR_INCREMENTS;
                     break;
                 case 2:
-                    // adjust SPRAY_THRESHOLD - decrease
                     SPRAY_THRESHOLD += STEP_SIZE_FOR_INCREMENTS;
                     break;
                 case 3:
-                    // adjust ENABLE_TRIGGER_VALUE - toggle
                     ENABLE_TRIGGER_VALUE = 1;
                     break;
                 case 4:
-                    // adjust ENABLE_ALERT_VALUE - toggle
                     ENABLE_ALERT_VALUE = 1;
                     break;
                 default:
@@ -1277,9 +1237,7 @@ ISR(TIMER2_OVF_vect)
 {
     tick++;
 
-    // 1 second is reached after 61.2745098 ticks at 1024 prescaler with 16MHz clock
-    // 10 seconds is reached at approximately 612.745098 ticks
-    if (tick >= 612) {
+    if (tick >= 250) {
         tick = 0;
         system_events_trigger = 1;
     }
@@ -1296,6 +1254,7 @@ int main(void)
     LED_SYSTEM_ACTIVE_INIT();
     TIMER2_INIT();
 
+    char alert_message_buffer[64];
     uint8_t pressed_key = KEYPAD_NO_KEY;
     char SYSTEM_SIGNAL = 0;
 
@@ -1304,7 +1263,6 @@ int main(void)
 
     while (1)
     {
-        // display alert messages to the user if system signal is active and alerts are enabled
         if (SYSTEM_SIGNAL && ENABLE_ALERT_VALUE) {
             char *messagePointer = NULL;
             SYSTEM_SIGNAL = 0;
@@ -1336,9 +1294,8 @@ int main(void)
             if (ENABLE_TRIGGER_VALUE) {
                 if (capacity <= MINIMUM_CAPACITY_BEFORE_REFILLING_TRIGGER) {
                     if ((ten_seconds_count - last_refill_alert_time) >= ALERT_COOLDOWN_SECONDS) {
-                        char msg[64];
-                        snprintf(msg, sizeof(msg), "Refill triggered at %.1f Ltrs", capacity);
-                        enqueueStr(&MESSAGES_Q, msg);
+                        snprintf(alert_message_buffer, sizeof(alert_message_buffer), "Refill triggered at %.1f Ltrs", capacity);
+                        enqueueStr(&MESSAGES_Q, alert_message_buffer);
                         SYSTEM_SIGNAL = 1;
                         last_refill_alert_time = ten_seconds_count;
                     }
@@ -1346,9 +1303,8 @@ int main(void)
 
                 if (soil_temp >= MAXIMUM_TEMPERATURE_BEFORE_PUMPING) {
                     if ((ten_seconds_count - last_cooling_alert_time) >= ALERT_COOLDOWN_SECONDS) {
-                        char msg[64];
-                        snprintf(msg, sizeof(msg), "Cooling triggered at %.2f degrees", soil_temp);
-                        enqueueStr(&MESSAGES_Q, msg);
+                        snprintf(alert_message_buffer, sizeof(alert_message_buffer), "Cooling triggered at %.2f degrees", soil_temp);
+                        enqueueStr(&MESSAGES_Q, alert_message_buffer);
                         SYSTEM_SIGNAL = 1;
                         last_cooling_alert_time = ten_seconds_count;
                     }
@@ -1356,9 +1312,8 @@ int main(void)
 
                 if (capacity >= PUMP_THRESHOLD) {
                     if ((ten_seconds_count - last_pumping_alert_time) >= ALERT_COOLDOWN_SECONDS) {
-                        char msg[64];
-                        snprintf(msg, sizeof(msg), "Pumping stopped at %.1f Ltrs", capacity);
-                        enqueueStr(&MESSAGES_Q, msg);
+                        snprintf(alert_message_buffer, sizeof(alert_message_buffer), "Pumping stopped at %.1f Ltrs", capacity);
+                        enqueueStr(&MESSAGES_Q, alert_message_buffer);
                         SYSTEM_SIGNAL = 1;
                         last_pumping_alert_time = ten_seconds_count;
                     }
@@ -1366,9 +1321,8 @@ int main(void)
 
                 if (soil_temp <= SPRAY_THRESHOLD) {
                     if ((ten_seconds_count - last_spraying_alert_time) >= ALERT_COOLDOWN_SECONDS) {
-                        char msg[64];
-                        snprintf(msg, sizeof(msg), "Spraying stopped at %.2f degrees", soil_temp);
-                        enqueueStr(&MESSAGES_Q, msg);
+                        snprintf(alert_message_buffer, sizeof(alert_message_buffer), "Spraying stopped at %.2f degrees", soil_temp);
+                        enqueueStr(&MESSAGES_Q, alert_message_buffer);
                         SYSTEM_SIGNAL = 1;
                         last_spraying_alert_time = ten_seconds_count;
                     }
@@ -1382,66 +1336,27 @@ int main(void)
         {
             while ((pressed_key = KEYPAD_read()) == KEYPAD_NO_KEY)
             {
-                LED_system_active_on();
-                switch (live_view_hover_index)
-                {
+                switch (live_view_hover_index) {
                     case 0:
-                        if (!(SHOW_LOADING_WIDGET)) {
-                            display_set("CAPACITY", "Updating...");
-                            SHOW_LOADING_WIDGET = 1;
-                            current_tank_capacity = get_tank_capacity();
-                        }
-                        else {
-                            format_float(buffer, sizeof(buffer), current_tank_capacity, 1, "Ltrs");
-                            display_set("CAPACITY", buffer);
-                        }
-
+                        current_tank_capacity = get_tank_capacity();
                         break;
                     case 1:
-                        if (!(SHOW_LOADING_WIDGET))
-                        {
-                            display_set("REFILL RATE", "Updating...");
-                            SHOW_LOADING_WIDGET = 1;
-                            current_refill_rate = get_refill_rate();
-                        } else {
-                            format_float(buffer, sizeof(buffer), current_refill_rate, 1, "Ltrs per min");
-                            display_set("REFILL RATE", buffer);
-                        }
+                        current_refill_rate = get_refill_rate();
                         break;
                     case 2:
-                        if (!(SHOW_LOADING_WIDGET))
-                        {
-                            display_set("LEAK RATE", "Updating...");
-                            SHOW_LOADING_WIDGET = 1;
-                            current_leak_rate = get_leak_rate();
-                        } else {
-                            format_float(buffer, sizeof(buffer), current_leak_rate, 1, "Ltrs per min");
-                            display_set("LEAK RATE", buffer);
-                        }
-                        
+                        current_leak_rate = get_leak_rate();
                         break;
-
                     case 3:
-                        if (!(SHOW_LOADING_WIDGET))
-                        {
-                            display_set("SOIL TEMP", "Updating...");
-                            SHOW_LOADING_WIDGET = 1;
-                            current_soil_temperature = get_soil_temperature();
-                        } else {
-                            format_float(buffer, sizeof(buffer), current_soil_temperature, 1, "degrees");
-                            display_set("SOIL TEMP", buffer);
-                        }
-                        
+                        current_soil_temperature = get_soil_temperature();
                         break;
                 }
+                LED_system_active_on();
+                ui_show_display();
                 LED_system_active_off();
             }
 
-            SHOW_LOADING_WIDGET = 0;
-
             if (pressed_key == 1)
             {
-                // exit live view on key 1 press
                 active_menu_index = -1;
                 pressed_key = KEYPAD_NO_KEY;
                 break;
@@ -1452,20 +1367,15 @@ int main(void)
             while (KEYPAD_read() != KEYPAD_NO_KEY);
         }
 
-
-        // _delay_ms(20);
-
         if (pressed_key == KEYPAD_NO_KEY) {
             LED_system_active_on();
             while ((pressed_key = KEYPAD_read()) == KEYPAD_NO_KEY);
             LED_system_active_off();
         }
         
-        // _delay_ms(20);
         if (KEYPAD_read() == pressed_key)
         {
             ui_process_key_command(pressed_key);
-
             while (KEYPAD_read() != KEYPAD_NO_KEY); // wait until the key is released
         }
 
